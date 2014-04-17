@@ -20,7 +20,7 @@ production environment.
 A blog post will shortly be forthcoming explaining the design decisions
 in this library.
 
-This module is fully covered with [godoc](http://godoc.org/thejerf/suture),
+This module is fully covered with [godoc](http://godoc.org/github.com/thejerf/suture),
 including an example, usage, and everything else you might expect from a
 README.md on GitHub. (DRY.)
 
