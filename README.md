@@ -17,8 +17,8 @@ restarting dead services), while also making no unnecessary demands on the
 "service" code, and providing hooks to perform adequate logging with in a
 production environment.
 
-A blog post will shortly be forthcoming explaining the design decisions
-in this library.
+[A blog post describing the design decisions](http://www.jerf.org/iri/post/2930)
+is available.
 
 This module is fully covered with [godoc](http://godoc.org/github.com/thejerf/suture),
 including an example, usage, and everything else you might expect from a
