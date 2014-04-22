@@ -22,6 +22,9 @@ Why use Suture?
 Suture has 100% test coverage, and is golint clean. This doesn't prove it
 free of bugs, but it shows I care.
 
+A blog post describing the design decisions is available at
+http://www.jerf.org/iri/post/2930 .
+
 Using Suture
 
 To idiomatically use Suture, create a Supervisor which is your top level
