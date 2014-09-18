@@ -12,7 +12,7 @@ trying to fall apart.
 Why use Suture?
 
  * You want to write bullet-resistant services that will remain available
-   despite unforseen failure.
+   despite unforeseen failure.
  * You need the code to be smart enough not to consume 100% of the CPU
    restarting things.
  * You want to easily compose multiple such services in one program.
