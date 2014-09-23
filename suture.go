@@ -423,6 +423,12 @@ func (s *Supervisor) Serve() {
 					s.removeService(id)
 				}
 				return
+			case listServices:
+				services := []Service{}
+				for _, service := range s.services {
+					services = append(services, service)
+				}
+				msg.c <- services
 			case syncSupervisor:
 				// this does nothing on purpose; its sole purpose is to
 				// introduce a sync point via the channel receive
@@ -550,6 +556,24 @@ func (s *Supervisor) Remove(id ServiceToken) error {
 	s.control <- removeService{serviceID(id.id & 0xffffffff)}
 	return nil
 }
+
+/*
+
+Services returns a []Service containing a snapshot of the services this
+Supervisor is managing.
+
+*/
+func (s *Supervisor) Services() []Service {
+	ls := listServices{make(chan []Service)}
+	s.control <- ls
+	return <-ls.c
+}
+
+type listServices struct {
+	c chan []Service
+}
+
+func (ls listServices) isSupervisorMessage() {}
 
 type removeService struct {
 	id serviceID

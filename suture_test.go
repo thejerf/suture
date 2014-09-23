@@ -3,6 +3,7 @@ package suture
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -57,6 +58,11 @@ func TestAddingToRunningSupervisor(t *testing.T) {
 	s.Add(service)
 
 	<-service.started
+
+	services := s.Services()
+	if !reflect.DeepEqual([]Service{service}, services) {
+		t.Fatal("Can't get list of services as expected.")
+	}
 }
 
 // Test what happens when services fail.
