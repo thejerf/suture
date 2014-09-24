@@ -28,6 +28,12 @@ This is not currently tagged with particular git tags for Go as this is
 currently considered to be alpha code. As I move this into production and
 feel more confident about it, I'll give it relevant tags.
 
+Code Signing
+------------
+
+Starting with the commit after ac7cf8591b, I will be signing this repository
+with the ["jerf" keybase account](https://keybase.io/jerf).
+
 Aspiration
 ----------
 
