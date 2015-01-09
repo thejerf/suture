@@ -232,8 +232,14 @@ func TestRunningAlreadyRunning(t *testing.T) {
 func TestFullConstruction(t *testing.T) {
 	t.Parallel()
 
-	s := New("Moo", Spec{Log: func(string) {}, FailureDecay: 1, FailureThreshold: 2, FailureBackoff: 3})
-	if s.String() != "Moo" || s.failureDecay != 1 || s.failureThreshold != 2 || s.failureBackoff != 3 {
+	s := New("Moo", Spec{
+		Log:              func(string) {},
+		FailureDecay:     1,
+		FailureThreshold: 2,
+		FailureBackoff:   3,
+		Timeout:          time.Second * 29,
+	})
+	if s.String() != "Moo" || s.failureDecay != 1 || s.failureThreshold != 2 || s.failureBackoff != 3 || s.timeout != time.Second*29 {
 		t.Fatal("Full construction failed somehow")
 	}
 }

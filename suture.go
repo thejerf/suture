@@ -110,6 +110,7 @@ type Supervisor struct {
 	failureDecay     float64
 	failureThreshold float64
 	failureBackoff   time.Duration
+	timeout          time.Duration
 	log              func(string)
 	services         map[serviceID]Service
 	lastFail         time.Time
@@ -142,6 +143,7 @@ type Spec struct {
 	FailureDecay     float64
 	FailureThreshold float64
 	FailureBackoff   time.Duration
+	Timeout          time.Duration
 }
 
 /*
@@ -157,6 +159,7 @@ If not set, the following values are used:
  * FailureDecay:      30 seconds
  * FailureThreshold:  5 failures
  * FailureBackoff:    15 seconds
+ * Timeout:           10 seconds
 
 The Log function will be called when errors occur. Suture will log the
 following:
@@ -181,6 +184,8 @@ is incremented by one. When the number of failures passes the
 FailureThreshold, the entire service waits for FailureBackoff seconds
 before attempting any further restarts, at which point it resets its
 failure count to zero.
+
+Timeout is how long Suture will wait for a service to properly terminate.
 
 */
 func New(name string, spec Spec) (s *Supervisor) {
@@ -211,6 +216,11 @@ func New(name string, spec Spec) (s *Supervisor) {
 		s.failureBackoff = time.Second * 15
 	} else {
 		s.failureBackoff = spec.FailureBackoff
+	}
+	if spec.Timeout == 0 {
+		s.timeout = time.Second * 10
+	} else {
+		s.timeout = spec.Timeout
 	}
 
 	// overriding these allows for testing the threshold behavior
@@ -306,9 +316,9 @@ service code. Bear in mind that to perfectly correctly use this
 approach requires a bit more work to handle the chance of a Stop
 command coming in before the resource has been created.
 
-If a service does not Stop within 10 seconds, a log entry will
-be made with a descriptive string to that effect. This does not
-guarantee that the service is hung; it may still get around to being
+If a service does not Stop within the supervisor's timeout duration, a log
+entry will be made with a descriptive string to that effect. This does
+not guarantee that the service is hung; it may still get around to being
 properly stopped in the future. Until the service is fully stopped,
 both the service and the spawned goroutine trying to stop it will be
 "leaked".
@@ -520,7 +530,7 @@ func (s *Supervisor) removeService(id serviceID) {
 				successChan <- true
 			}()
 
-			failChan := s.getResume(time.Second * 10)
+			failChan := s.getResume(s.timeout)
 
 			select {
 			case <-successChan:
