@@ -294,7 +294,7 @@ Stop Method
 This method is used by the supervisor to stop the service. Calling this
 directly on a Service given to a Supervisor will simply result in the
 Service being restarted; use the Supervisor's .Remove(ServiceToken) method
-to stop a service. A service will call .Stop() only once. Thus, it may
+to stop a service. A supervisor will call .Stop() only once. Thus, it may
 be as destructive as it likes to get the service to stop.
 
 Once Stop has been called on a Service, the Service SHOULD NOT be
