@@ -525,7 +525,7 @@ func (s *FailableService) Serve() {
 		everMultistarted = true
 		panic("Multi-started the same service! " + s.name)
 	}
-	s.existing += 1
+	s.existing++
 
 	s.started <- true
 
@@ -538,13 +538,13 @@ func (s *FailableService) Serve() {
 			case Happy:
 				// Do nothing on purpose. Life is good!
 			case Fail:
-				s.existing -= 1
+				s.existing--
 				if useStopChan {
 					s.stop <- true
 				}
 				return
 			case Panic:
-				s.existing -= 1
+				s.existing--
 				panic("Panic!")
 			case Hang:
 				// or more specifically, "hang until I release you"
@@ -553,7 +553,7 @@ func (s *FailableService) Serve() {
 				useStopChan = true
 			}
 		case <-s.shutdown:
-			s.existing -= 1
+			s.existing--
 			if useStopChan {
 				s.stop <- true
 			}
