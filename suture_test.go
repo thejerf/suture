@@ -478,6 +478,22 @@ func TestNilSupervisorAdd(t *testing.T) {
 	s.Add(s)
 }
 
+// https://github.com/thejerf/suture/issues/11
+//
+// The purpose of this test is to verify that it does not cause data races,
+// so there are no obvious assertions.
+func TestIssue11(t *testing.T) {
+	t.Parallel()
+
+	s := NewSimple("main")
+	s.ServeBackground()
+
+	subsuper := NewSimple("sub")
+	s.Add(subsuper)
+
+	subsuper.Add(NewService("may cause data race"))
+}
+
 // http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
 // claims test function are run in the same order as the source file...
 // I'm not sure if this is part of the contract, though. Especially in the
