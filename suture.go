@@ -115,18 +115,19 @@ type Supervisor struct {
 	Name string
 	id   supervisorID
 
-	failureDecay     float64
-	failureThreshold float64
-	failureBackoff   time.Duration
-	timeout          time.Duration
-	log              func(string)
-	services         map[serviceID]Service
-	lastFail         time.Time
-	failures         float64
-	restartQueue     []serviceID
-	serviceCounter   serviceID
-	control          chan supervisorMessage
-	resumeTimer      <-chan time.Time
+	failureDecay         float64
+	failureThreshold     float64
+	failureBackoff       time.Duration
+	timeout              time.Duration
+	log                  func(string)
+	services             map[serviceID]Service
+	servicesShuttingDown map[serviceID]Service
+	lastFail             time.Time
+	failures             float64
+	restartQueue         []serviceID
+	serviceCounter       serviceID
+	control              chan supervisorMessage
+	resumeTimer          <-chan time.Time
 
 	// The testing uses the ability to grab these individual logging functions
 	// and get inside of suture's handling at a deep level.
@@ -241,6 +242,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 
 	s.control = make(chan supervisorMessage)
 	s.services = make(map[serviceID]Service)
+	s.servicesShuttingDown = make(map[serviceID]Service)
 	s.restartQueue = make([]serviceID, 0, 1)
 	s.resumeTimer = make(chan time.Time)
 
@@ -342,6 +344,11 @@ service, but if your Service does happen to implement that, the log
 messages that describe your service will use that when naming the
 service. Otherwise, you'll see the GoString of your service object,
 obtained via fmt.Sprintf("%#v", service).
+
+If you implement the Stringer interface, it must be callable from any
+goroutine, and must not be dependent on the state of your Service, i.e.,
+it must still successfully execute and return something even if your
+Service is completely crashed.
 
 */
 type Service interface {
@@ -457,11 +464,11 @@ func (s *Supervisor) Serve() {
 
 				msg.response <- id
 			case removeService:
-				s.removeService(msg.id)
+				s.removeService(msg.id, s.control)
+			case serviceTerminated:
+				delete(s.servicesShuttingDown, msg.id)
 			case stopSupervisor:
-				for id := range s.services {
-					s.removeService(id)
-				}
+				s.stopSupervisor()
 				return
 			case listServices:
 				services := []Service{}
@@ -559,10 +566,11 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 	}()
 }
 
-func (s *Supervisor) removeService(id serviceID) {
+func (s *Supervisor) removeService(id serviceID, removedChan chan supervisorMessage) {
 	service, present := s.services[id]
 	if present {
 		delete(s.services, id)
+		s.servicesShuttingDown[id] = service
 		go func() {
 			successChan := make(chan bool)
 			go func() {
@@ -570,16 +578,45 @@ func (s *Supervisor) removeService(id serviceID) {
 				successChan <- true
 			}()
 
-			failChan := s.getAfterChan(s.timeout)
-
 			select {
 			case <-successChan:
 				// Life is good!
-			case <-failChan:
+			case <-s.getAfterChan(s.timeout):
 				s.logBadStop(s, service)
 			}
+			removedChan <- serviceTerminated{id}
 		}()
 	}
+}
+
+func (s *Supervisor) stopSupervisor() {
+	notifyDone := make(chan serviceID)
+
+	for id := range s.services {
+		service, present := s.services[id]
+		if present {
+			delete(s.services, id)
+			s.servicesShuttingDown[id] = service
+			go func(sID serviceID) {
+				service.Stop()
+				notifyDone <- sID
+			}(id)
+		}
+	}
+
+	timeout := s.getAfterChan(s.timeout)
+	for len(s.servicesShuttingDown) > 0 {
+		select {
+		case id := <-notifyDone:
+			delete(s.servicesShuttingDown, id)
+		case <-timeout:
+			for _, service := range s.servicesShuttingDown {
+				s.logBadStop(s, service)
+			}
+			return
+		}
+	}
+	return
 }
 
 // String implements the fmt.Stringer interface.
@@ -671,6 +708,9 @@ type addService struct {
 func (as addService) isSupervisorMessage() {}
 
 // Stop stops the Supervisor.
+//
+// This function will not return until either all Services have stopped, or
+// they timeout after the timeout value given to the Supervisor at creation.
 func (s *Supervisor) Stop() {
 	s.control <- stopSupervisor{}
 }
@@ -683,6 +723,12 @@ func (ss stopSupervisor) isSupervisorMessage() {}
 func (s *Supervisor) panic() {
 	s.control <- panicSupervisor{}
 }
+
+type serviceTerminated struct {
+	id serviceID
+}
+
+func (st serviceTerminated) isSupervisorMessage() {}
 
 type panicSupervisor struct {
 }

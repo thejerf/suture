@@ -328,6 +328,7 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 	<-service.stop
 }
 
+// This tests that even if a service is hung, the supervisor will stop.
 func TestStoppingStillWorksWithHungServices(t *testing.T) {
 	t.Parallel()
 
@@ -358,6 +359,38 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 	<-failNotify
 	service.release <- true
 	<-service.stop
+}
+
+// This tests that even if a service is hung, the supervisor can still
+// remove it.
+func TestRemovingHungService(t *testing.T) {
+	t.Parallel()
+
+	s := NewSimple("TopHungService")
+	failNotify := make(chan struct{})
+	resumeChan := make(chan time.Time)
+	s.getAfterChan = func(d time.Duration) <-chan time.Time {
+		return resumeChan
+	}
+	s.logBadStop = func(supervisor *Supervisor, s Service) {
+		failNotify <- struct{}{}
+	}
+	service := NewService("Service WillHang")
+
+	sToken := s.Add(service)
+
+	go s.Serve()
+
+	<-service.started
+	service.take <- Hang
+
+	s.Remove(sToken)
+	resumeChan <- time.Time{}
+
+	<-failNotify
+	fmt.Println("Got notification of shutdown failure")
+	service.release <- true
+	service.shutdown <- true
 }
 
 func TestRemoveService(t *testing.T) {
