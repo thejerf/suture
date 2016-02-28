@@ -141,8 +141,8 @@ type Supervisor struct {
 
 	// avoid a dependency on github.com/thejerf/abtime by just implementing
 	// a minimal chunk.
-	getNow    func() time.Time
-	getResume func(time.Duration) <-chan time.Time
+	getNow       func() time.Time
+	getAfterChan func(time.Duration) <-chan time.Time
 
 	sync.Mutex
 	state uint8
@@ -237,7 +237,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 
 	// overriding these allows for testing the threshold behavior
 	s.getNow = time.Now
-	s.getResume = time.After
+	s.getAfterChan = time.After
 
 	s.control = make(chan supervisorMessage)
 	s.services = make(map[serviceID]Service)
@@ -514,7 +514,7 @@ func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktra
 		s.state = paused
 		s.Unlock()
 		s.logBackoff(s, true)
-		s.resumeTimer = s.getResume(s.failureBackoff)
+		s.resumeTimer = s.getAfterChan(s.failureBackoff)
 	}
 
 	s.lastFail = now
@@ -570,7 +570,7 @@ func (s *Supervisor) removeService(id serviceID) {
 				successChan <- true
 			}()
 
-			failChan := s.getResume(s.timeout)
+			failChan := s.getAfterChan(s.timeout)
 
 			select {
 			case <-successChan:

@@ -96,7 +96,7 @@ func TestFailures(t *testing.T) {
 	s.getNow = nowFeeder.getter
 
 	resumeChan := make(chan time.Time)
-	s.getResume = func(d time.Duration) <-chan time.Time {
+	s.getAfterChan = func(d time.Duration) <-chan time.Time {
 		return resumeChan
 	}
 
@@ -261,7 +261,7 @@ func TestDefaultLogging(t *testing.T) {
 	<-service.started
 
 	resumeChan := make(chan time.Time)
-	s.getResume = func(d time.Duration) <-chan time.Time {
+	s.getAfterChan = func(d time.Duration) <-chan time.Time {
 		return resumeChan
 	}
 
@@ -344,7 +344,7 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 	service.take <- Hang
 
 	resumeChan := make(chan time.Time)
-	s.getResume = func(d time.Duration) <-chan time.Time {
+	s.getAfterChan = func(d time.Duration) <-chan time.Time {
 		return resumeChan
 	}
 	failNotify := make(chan struct{})
@@ -441,7 +441,7 @@ func TestFailingSupervisors(t *testing.T) {
 
 	// let us control precisely when s1 comes back
 	resumeChan := make(chan time.Time)
-	s1.getResume = func(d time.Duration) <-chan time.Time {
+	s1.getAfterChan = func(d time.Duration) <-chan time.Time {
 		return resumeChan
 	}
 	failNotify := make(chan string)
