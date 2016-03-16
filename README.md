@@ -47,4 +47,7 @@ suture uses semantic versioning.
   * Initial release.
 2. 1.0.1
   * Fixed data race on the .state variable.
-
+3. 1.1.0
+  * Per #12, Supervisor.stop now tries to wait for its children before
+    returning. A careful reading of the original .Stop() contract
+    says this is the correct behavior.
