@@ -70,94 +70,100 @@ const (
 	paused
 )
 
-type supervisorID uint32
-type serviceID uint32
+var (
+	currentSupervisorID uint32
 
-var currentSupervisorID uint32
+	// ErrWrongSupervisor is returned by the (*Supervisor).Remove method
+	// if you pass a ServiceToken from the wrong Supervisor.
+	ErrWrongSupervisor = errors.New("wrong supervisor for this service token, no service removed")
+)
 
-// ErrWrongSupervisor is returned by the (*Supervisor).Remove method
-// if you pass a ServiceToken from the wrong Supervisor.
-var ErrWrongSupervisor = errors.New("wrong supervisor for this service token, no service removed")
+type (
+	supervisorID uint32
 
-// ServiceToken is an opaque identifier that can be used to terminate a service that
-// has been Add()ed to a Supervisor.
-type ServiceToken struct {
-	id uint64
-}
+	/*Supervisor is the core type of the module that represents a Supervisor.
 
-/*
-Supervisor is the core type of the module that represents a Supervisor.
+	Supervisors should be constructed either by New or NewSimple.
 
-Supervisors should be constructed either by New or NewSimple.
+	Once constructed, a Supervisor should be started in one of three ways:
 
-Once constructed, a Supervisor should be started in one of three ways:
+	   1. Calling .Serve().
+	   2. Calling .ServeBackground().
+	   3. Adding it to an existing Supervisor.
 
- 1. Calling .Serve().
- 2. Calling .ServeBackground().
- 3. Adding it to an existing Supervisor.
+	Calling Serve will cause the supervisor to run until it is shut down by
+	an external user calling Stop() on it. If that never happens, it simply
+	runs forever. I suggest creating your services in Supervisors, then making
+	a Serve() call on your top-level Supervisor be the last line of your main
+	func.
 
-Calling Serve will cause the supervisor to run until it is shut down by
-an external user calling Stop() on it. If that never happens, it simply
-runs forever. I suggest creating your services in Supervisors, then making
-a Serve() call on your top-level Supervisor be the last line of your main
-func.
+	Calling ServeBackground will CORRECTLY start the supervisor running in a
+	new goroutine. You do not want to just:
 
-Calling ServeBackground will CORRECTLY start the supervisor running in a
-new goroutine. You do not want to just:
+	    go supervisor.Serve()
 
-  go supervisor.Serve()
+	because that will briefly create a race condition as it starts up, if you
+	try to .Add() services immediately afterward.
 
-because that will briefly create a race condition as it starts up, if you
-try to .Add() services immediately afterward.
+	*/
+	Supervisor struct {
+		Name string
+		id   supervisorID
 
-*/
-type Supervisor struct {
-	Name string
-	id   supervisorID
+		failureDecay         float64
+		failureThreshold     float64
+		failureBackoff       time.Duration
+		timeout              time.Duration
+		log                  func(string)
+		services             map[serviceID]Service
+		servicesShuttingDown map[serviceID]Service
+		lastFail             time.Time
+		failures             float64
+		restartQueue         []serviceID
+		serviceCounter       serviceID
+		control              chan supervisorMessage
+		resumeTimer          <-chan time.Time
 
-	failureDecay         float64
-	failureThreshold     float64
-	failureBackoff       time.Duration
-	timeout              time.Duration
-	log                  func(string)
-	services             map[serviceID]Service
-	servicesShuttingDown map[serviceID]Service
-	lastFail             time.Time
-	failures             float64
-	restartQueue         []serviceID
-	serviceCounter       serviceID
-	control              chan supervisorMessage
-	resumeTimer          <-chan time.Time
+		// The testing uses the ability to grab these individual logging functions
+		// and get inside of suture's handling at a deep level.
+		// If you ever come up with some need to get into these, submit a pull
+		// request to make them public and some smidge of justification, and
+		// I'll happily do it.
+		// But since I've now changed the signature on these once, I'm glad I
+		// didn't start with them public... :)
+		logBadStop func(*Supervisor, Service)
+		logFailure func(supervisor *Supervisor, service Service, currentFailures float64, failureThreshold float64, restarting bool, error interface{}, stacktrace []byte)
+		logBackoff func(*Supervisor, bool)
 
-	// The testing uses the ability to grab these individual logging functions
-	// and get inside of suture's handling at a deep level.
-	// If you ever come up with some need to get into these, submit a pull
-	// request to make them public and some smidge of justification, and
-	// I'll happily do it.
-	// But since I've now changed the signature on these once, I'm glad I
-	// didn't start with them public... :)
-	logBadStop func(*Supervisor, Service)
-	logFailure func(supervisor *Supervisor, service Service, currentFailures float64, failureThreshold float64, restarting bool, error interface{}, stacktrace []byte)
-	logBackoff func(*Supervisor, bool)
+		// Avoid a dependency on github.com/thejerf/abtime by just implementing
+		// a minimal chunk.
+		getNow       func() time.Time
+		getAfterChan func(time.Duration) <-chan time.Time
 
-	// avoid a dependency on github.com/thejerf/abtime by just implementing
-	// a minimal chunk.
-	getNow       func() time.Time
-	getAfterChan func(time.Duration) <-chan time.Time
+		sync.Mutex
+		state uint8
+	}
 
-	sync.Mutex
-	state uint8
-}
+	// Spec is used to pass arguments to the New function to create a
+	// supervisor. See the New function for full documentation.
+	Spec struct {
+		Log              func(string)
+		FailureDecay     float64
+		FailureThreshold float64
+		FailureBackoff   time.Duration
+		Timeout          time.Duration
+	}
 
-// Spec is used to pass arguments to the New function to create a
-// supervisor. See the New function for full documentation.
-type Spec struct {
-	Log              func(string)
-	FailureDecay     float64
-	FailureThreshold float64
-	FailureBackoff   time.Duration
-	Timeout          time.Duration
-}
+	// Sum type pattern for type-safe message passing; see
+	// http://www.jerf.org/iri/post/2917
+	supervisorMessage interface {
+		isSupervisorMessage()
+	}
+
+	syncSupervisor  struct{}
+	stopSupervisor  struct{}
+	panicSupervisor struct{}
+)
 
 /*
 
@@ -220,7 +226,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.failureBackoff = durationOrDefault(spec.FailureBackoff, 15*time.Second)
 	s.timeout = durationOrDefault(spec.Timeout, 10*time.Second)
 
-	// overriding these allows for testing the threshold behavior
+	// Overriding these allows for testing the threshold behavior
 	s.getNow = time.Now
 	s.getAfterChan = time.After
 
@@ -230,7 +236,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.restartQueue = make([]serviceID, 0, 1)
 	s.resumeTimer = make(chan time.Time)
 
-	// set up the default logging handlers
+	// Set up the default logging handlers
 	s.logBadStop = func(supervisor *Supervisor, service Service) {
 		s.log(fmt.Sprintf("%s: Service %s failed to terminate in a timely manner", serviceName(supervisor), serviceName(service)))
 	}
@@ -239,7 +245,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 	}
 	s.logBackoff = func(s *Supervisor, entering bool) {
 		if entering {
-			s.log("Entering the backoff state.")
+			s.log("Entering backoff state.")
 		} else {
 			s.log("Exiting backoff state.")
 		}
@@ -248,85 +254,10 @@ func New(name string, spec Spec) (s *Supervisor) {
 	return
 }
 
-func serviceName(service Service) string {
-	// Return service.String() if service is a fmt.Stringer
-	if stringer, ok := service.(fmt.Stringer); ok {
-		return stringer.String()
-	}
-	return fmt.Sprintf("%#v", service)
-}
-
 // NewSimple is a convenience function to create a service with just a name
 // and the sensible defaults.
 func NewSimple(name string) *Supervisor {
 	return New(name, Spec{})
-}
-
-/*
-Service is the interface that describes a service to a Supervisor.
-
-Serve Method
-
-The Serve method is called by a Supervisor to start the service.
-The service should execute within the goroutine that this is
-called in. If this function either returns or panics, the Supervisor
-will call it again.
-
-A Serve method SHOULD do as much cleanup of the state as possible,
-to prevent any corruption in the previous state from crashing the
-service again.
-
-Stop Method
-
-This method is used by the supervisor to stop the service. Calling this
-directly on a Service given to a Supervisor will simply result in the
-Service being restarted; use the Supervisor's .Remove(ServiceToken) method
-to stop a service. A supervisor will call .Stop() only once. Thus, it may
-be as destructive as it likes to get the service to stop.
-
-Once Stop has been called on a Service, the Service SHOULD NOT be
-reused in any other supervisor! Because of the impossibility of
-guaranteeing that the service has actually stopped in Go, you can't
-prove that you won't be starting two goroutines using the exact
-same memory to store state, causing completely unpredictable behavior.
-
-Stop should not return until the service has actually stopped.
-"Stopped" here is defined as "the service will stop servicing any
-further requests in the future". For instance, a common implementation
-is to receive a message on a dedicated "stop" channel and immediately
-returning. Once the stop command has been processed, the service is
-stopped.
-
-Another common Stop implementation is to forcibly close an open socket
-or other resource, which will cause detectable errors to manifest in the
-service code. Bear in mind that to perfectly correctly use this
-approach requires a bit more work to handle the chance of a Stop
-command coming in before the resource has been created.
-
-If a service does not Stop within the supervisor's timeout duration, a log
-entry will be made with a descriptive string to that effect. This does
-not guarantee that the service is hung; it may still get around to being
-properly stopped in the future. Until the service is fully stopped,
-both the service and the spawned goroutine trying to stop it will be
-"leaked".
-
-Stringer Interface
-
-It is not mandatory to implement the fmt.Stringer interface on your
-service, but if your Service does happen to implement that, the log
-messages that describe your service will use that when naming the
-service. Otherwise, you'll see the GoString of your service object,
-obtained via fmt.Sprintf("%#v", service).
-
-If you implement the Stringer interface, it must be callable from any
-goroutine, and must not be dependent on the state of your Service, i.e.,
-it must still successfully execute and return something even if your
-Service is completely crashed.
-
-*/
-type Service interface {
-	Serve()
-	Stop()
 }
 
 /*
@@ -381,10 +312,8 @@ func (s *Supervisor) ServeBackground() {
 	s.sync()
 }
 
-/*
-Serve starts the supervisor. You should call this on the top-level supervisor,
-but nothing else.
-*/
+// Serve starts the supervisor. You should call this on the top-level
+// supervisor, but nothing else.
 func (s *Supervisor) Serve() {
 	if s == nil {
 		panic("Can't serve with a nil *suture.Supervisor")
@@ -597,17 +526,8 @@ func (s *Supervisor) String() string {
 	return s.Name
 }
 
-// sum type pattern for type-safe message passing; see
-// http://www.jerf.org/iri/post/2917
-
-type supervisorMessage interface {
-	isSupervisorMessage()
-}
-
-/*
-Remove will remove the given service from the Supervisor, and attempt to Stop() it.
-The ServiceID token comes from the Add() call.
-*/
+// Remove will remove the given service from the Supervisor, and attempt to Stop() it.
+// The ServiceID token comes from the Add() call.
 func (s *Supervisor) Remove(id ServiceToken) error {
 	sID := supervisorID(id.id >> 32)
 	if sID != s.id {
@@ -617,68 +537,21 @@ func (s *Supervisor) Remove(id ServiceToken) error {
 	return nil
 }
 
-/*
-
-Services returns a []Service containing a snapshot of the services this
-Supervisor is managing.
-
-*/
+// Services returns a []Service containing a snapshot of the services this
+// Supervisor is managing.
 func (s *Supervisor) Services() []Service {
 	ls := listServices{make(chan []Service)}
 	s.control <- ls
 	return <-ls.c
 }
 
-type listServices struct {
-	c chan []Service
-}
-
-func (ls listServices) isSupervisorMessage() {}
-
-type removeService struct {
-	id serviceID
-}
-
-func (rs removeService) isSupervisorMessage() {}
-
 func (s *Supervisor) sync() {
 	s.control <- syncSupervisor{}
 }
 
-type syncSupervisor struct {
-}
-
-func (ss syncSupervisor) isSupervisorMessage() {}
-
 func (s *Supervisor) fail(id serviceID, err interface{}, stacktrace []byte) {
 	s.control <- serviceFailed{id, err, stacktrace}
 }
-
-type serviceFailed struct {
-	id         serviceID
-	err        interface{}
-	stacktrace []byte
-}
-
-func (sf serviceFailed) isSupervisorMessage() {}
-
-func (s *Supervisor) serviceEnded(id serviceID) {
-	s.control <- serviceEnded{id}
-}
-
-type serviceEnded struct {
-	id serviceID
-}
-
-func (s serviceEnded) isSupervisorMessage() {}
-
-// added by the Add() method
-type addService struct {
-	service  Service
-	response chan serviceID
-}
-
-func (as addService) isSupervisorMessage() {}
 
 // Stop stops the Supervisor.
 //
@@ -688,22 +561,14 @@ func (s *Supervisor) Stop() {
 	s.control <- stopSupervisor{}
 }
 
-type stopSupervisor struct {
-}
-
-func (ss stopSupervisor) isSupervisorMessage() {}
-
 func (s *Supervisor) panic() {
 	s.control <- panicSupervisor{}
 }
 
-type serviceTerminated struct {
-	id serviceID
+func (s *Supervisor) serviceEnded(id serviceID) {
+	s.control <- serviceEnded{id}
 }
 
-func (st serviceTerminated) isSupervisorMessage() {}
-
-type panicSupervisor struct {
-}
-
+func (ss syncSupervisor) isSupervisorMessage()  {}
+func (ss stopSupervisor) isSupervisorMessage()  {}
 func (ps panicSupervisor) isSupervisorMessage() {}
