@@ -215,26 +215,10 @@ func New(name string, spec Spec) (s *Supervisor) {
 		s.log = spec.Log
 	}
 
-	if spec.FailureDecay == 0 {
-		s.failureDecay = 30
-	} else {
-		s.failureDecay = spec.FailureDecay
-	}
-	if spec.FailureThreshold == 0 {
-		s.failureThreshold = 5
-	} else {
-		s.failureThreshold = spec.FailureThreshold
-	}
-	if spec.FailureBackoff == 0 {
-		s.failureBackoff = time.Second * 15
-	} else {
-		s.failureBackoff = spec.FailureBackoff
-	}
-	if spec.Timeout == 0 {
-		s.timeout = time.Second * 10
-	} else {
-		s.timeout = spec.Timeout
-	}
+	s.failureDecay = floatOrDefault(spec.FailureDecay, 30.0)
+	s.failureThreshold = floatOrDefault(spec.FailureThreshold, 5.0)
+	s.failureBackoff = durationOrDefault(spec.FailureBackoff, 15*time.Second)
+	s.timeout = durationOrDefault(spec.Timeout, 10*time.Second)
 
 	// overriding these allows for testing the threshold behavior
 	s.getNow = time.Now
@@ -250,17 +234,8 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.logBadStop = func(supervisor *Supervisor, service Service) {
 		s.log(fmt.Sprintf("%s: Service %s failed to terminate in a timely manner", serviceName(supervisor), serviceName(service)))
 	}
-	s.logFailure = func(supervisor *Supervisor, service Service, failures float64, threshold float64, restarting bool, err interface{}, st []byte) {
-		var errString string
-
-		e, canError := err.(error)
-		if canError {
-			errString = e.Error()
-		} else {
-			errString = fmt.Sprintf("%#v", err)
-		}
-
-		s.log(fmt.Sprintf("%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s, stacktrace: %s", serviceName(supervisor), serviceName(service), failures, threshold, restarting, errString, string(st)))
+	s.logFailure = func(supervisor *Supervisor, service Service, failures float64, threshold float64, restarting bool, maybeErr interface{}, st []byte) {
+		s.log(fmt.Sprintf("%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s, stacktrace: %s", serviceName(supervisor), serviceName(service), failures, threshold, restarting, maybeErrToString(maybeErr), string(st)))
 	}
 	s.logBackoff = func(s *Supervisor, entering bool) {
 		if entering {
@@ -273,14 +248,12 @@ func New(name string, spec Spec) (s *Supervisor) {
 	return
 }
 
-func serviceName(service Service) (serviceName string) {
-	stringer, canStringer := service.(fmt.Stringer)
-	if canStringer {
-		serviceName = stringer.String()
-	} else {
-		serviceName = fmt.Sprintf("%#v", service)
+func serviceName(service Service) string {
+	// Return service.String() if service is a fmt.Stringer
+	if stringer, ok := service.(fmt.Stringer); ok {
+		return stringer.String()
 	}
-	return
+	return fmt.Sprintf("%#v", service)
 }
 
 // NewSimple is a convenience function to create a service with just a name
