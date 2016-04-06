@@ -353,7 +353,8 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 		failNotify <- struct{}{}
 	}
 
-	s.Stop()
+	// stop the supervisor, then immediately call time on it
+	go s.Stop()
 
 	resumeChan <- time.Time{}
 	<-failNotify
@@ -388,7 +389,6 @@ func TestRemovingHungService(t *testing.T) {
 	resumeChan <- time.Time{}
 
 	<-failNotify
-	fmt.Println("Got notification of shutdown failure")
 	service.release <- true
 	service.shutdown <- true
 }
@@ -540,7 +540,7 @@ func TestEverMultistarted(t *testing.T) {
 // A test service that can be induced to fail, panic, or hang on demand.
 func NewService(name string) *FailableService {
 	return &FailableService{name, make(chan bool), make(chan int),
-		make(chan bool, 1), make(chan bool), make(chan bool), 0}
+		make(chan bool), make(chan bool), make(chan bool), 0}
 }
 
 type FailableService struct {

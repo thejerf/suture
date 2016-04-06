@@ -469,6 +469,7 @@ func (s *Supervisor) Serve() {
 				delete(s.servicesShuttingDown, msg.id)
 			case stopSupervisor:
 				s.stopSupervisor()
+				msg.done <- struct{}{}
 				return
 			case listServices:
 				services := []Service{}
@@ -712,10 +713,13 @@ func (as addService) isSupervisorMessage() {}
 // This function will not return until either all Services have stopped, or
 // they timeout after the timeout value given to the Supervisor at creation.
 func (s *Supervisor) Stop() {
-	s.control <- stopSupervisor{}
+	done := make(chan struct{})
+	s.control <- stopSupervisor{done}
+	<-done
 }
 
 type stopSupervisor struct {
+	done chan struct{}
 }
 
 func (ss stopSupervisor) isSupervisorMessage() {}
