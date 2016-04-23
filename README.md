@@ -26,7 +26,12 @@ Code Signing
 ------------
 
 Starting with the commit after ac7cf8591b, I will be signing this repository
-with the ["jerf" keybase account](https://keybase.io/jerf).
+with the ["jerf" keybase account](https://keybase.io/jerf). If you are viewing
+this repository through GitHub, you should see the commits as showing as
+"verified" in the commit view.
+
+(Bear in mind that due to the nature of how git commit signing works, there
+may be runs of unverified commits; what matters is that the top one is signed.)
 
 Aspiration
 ----------
