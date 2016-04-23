@@ -326,6 +326,13 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 
 	s.Stop()
 	<-service.stop
+
+	if s.sendControl(syncSupervisor{}) {
+		t.Fatal("supervisor is shut down, should be returning fals for sendControl")
+	}
+	if s.Services() != nil {
+		t.Fatal("Non-running supervisor is returning services list")
+	}
 }
 
 // This tests that even if a service is hung, the supervisor will stop.
@@ -390,7 +397,6 @@ func TestRemovingHungService(t *testing.T) {
 
 	<-failNotify
 	service.release <- true
-	service.shutdown <- true
 }
 
 func TestRemoveService(t *testing.T) {

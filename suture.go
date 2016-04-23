@@ -127,6 +127,7 @@ type Supervisor struct {
 	restartQueue         []serviceID
 	serviceCounter       serviceID
 	control              chan supervisorMessage
+	liveness             chan struct{}
 	resumeTimer          <-chan time.Time
 
 	// The testing uses the ability to grab these individual logging functions
@@ -241,6 +242,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.getAfterChan = time.After
 
 	s.control = make(chan supervisorMessage)
+	s.liveness = make(chan struct{})
 	s.services = make(map[serviceID]Service)
 	s.servicesShuttingDown = make(map[serviceID]Service)
 	s.restartQueue = make([]serviceID, 0, 1)
@@ -617,6 +619,8 @@ func (s *Supervisor) stopSupervisor() {
 			return
 		}
 	}
+
+	close(s.liveness)
 	return
 }
 
@@ -632,6 +636,15 @@ type supervisorMessage interface {
 	isSupervisorMessage()
 }
 
+func (s *Supervisor) sendControl(sm supervisorMessage) bool {
+	select {
+	case s.control <- sm:
+		return true
+	case _, _ = (<-s.liveness):
+		return false
+	}
+}
+
 /*
 Remove will remove the given service from the Supervisor, and attempt to Stop() it.
 The ServiceID token comes from the Add() call.
@@ -641,7 +654,7 @@ func (s *Supervisor) Remove(id ServiceToken) error {
 	if sID != s.id {
 		return ErrWrongSupervisor
 	}
-	s.control <- removeService{serviceID(id.id & 0xffffffff)}
+	s.sendControl(removeService{serviceID(id.id & 0xffffffff)})
 	return nil
 }
 
@@ -653,8 +666,12 @@ Supervisor is managing.
 */
 func (s *Supervisor) Services() []Service {
 	ls := listServices{make(chan []Service)}
-	s.control <- ls
-	return <-ls.c
+
+	if s.sendControl(ls) {
+		return <-ls.c
+	} else {
+		return nil
+	}
 }
 
 type listServices struct {
@@ -691,7 +708,7 @@ type serviceFailed struct {
 func (sf serviceFailed) isSupervisorMessage() {}
 
 func (s *Supervisor) serviceEnded(id serviceID) {
-	s.control <- serviceEnded{id}
+	s.sendControl(serviceEnded{id})
 }
 
 type serviceEnded struct {
@@ -714,8 +731,9 @@ func (as addService) isSupervisorMessage() {}
 // they timeout after the timeout value given to the Supervisor at creation.
 func (s *Supervisor) Stop() {
 	done := make(chan struct{})
-	s.control <- stopSupervisor{done}
-	<-done
+	if s.sendControl(stopSupervisor{done}) {
+		<-done
+	}
 }
 
 type stopSupervisor struct {

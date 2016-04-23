@@ -59,3 +59,9 @@ suture uses semantic versioning.
 4. 1.1.1
   * Per #14, the fix in 1.1.0 did not actually wait for the Supervisor
     to stop.
+5. 1.1.2
+  * TravisCI showed that the fix for 1.1.1 induced a deadlock in Go 1.4 and
+    before.
+  * If the supervisor is terminated before a service, the service goroutine
+    could be orphaned trying the shutdown notification to the supervisor.
+    This should no longer occur.
