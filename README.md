@@ -48,20 +48,29 @@ Changelog
 
 suture uses semantic versioning.
 
-1. 1.0.0
-  * Initial release.
-2. 1.0.1
-  * Fixed data race on the .state variable.
-3. 1.1.0
-  * Per #12, Supervisor.stop now tries to wait for its children before
-    returning. A careful reading of the original .Stop() contract
-    says this is the correct behavior.
-4. 1.1.1
-  * Per #14, the fix in 1.1.0 did not actually wait for the Supervisor
-    to stop.
-5. 1.1.2
+1. 2.0.0 (release in progress, not yet tagged)
+  * A change to the signature of the logging methods:
+
+    A race condition could occur when the Supervisor rendered the service
+    name via fmt.Sprintf("%#v"), because fmt examines the entire object
+    regardless of locks through reflection. 2.0.0 changes the supervisors
+    to snapshot the Service's name once, when it is added, and to pass it
+    to the logging methods. This signature change prompts the 2.0 semantic
+    API.
+1. 1.1.2
   * TravisCI showed that the fix for 1.1.1 induced a deadlock in Go 1.4 and
     before.
   * If the supervisor is terminated before a service, the service goroutine
     could be orphaned trying the shutdown notification to the supervisor.
     This should no longer occur.
+1. 1.1.1
+  * Per #14, the fix in 1.1.0 did not actually wait for the Supervisor
+    to stop.
+1. 1.1.0
+  * Per #12, Supervisor.stop now tries to wait for its children before
+    returning. A careful reading of the original .Stop() contract
+    says this is the correct behavior.
+1. 1.0.1
+  * Fixed data race on the .state variable.
+1. 1.0.0
+  * Initial release.

@@ -77,7 +77,7 @@ func TestFailures(t *testing.T) {
 		// to avoid deadlocks during shutdown, we have to not try to send
 		// things out on channels while we're shutting down (this undoes the
 		// logFailure overide about 25 lines down)
-		s.logFailure = func(*Supervisor, Service, float64, float64, bool, interface{}, []byte) {}
+		s.logFailure = func(*Supervisor, Service, string, float64, float64, bool, interface{}, []byte) {}
 		s.Stop()
 	}()
 	s.sync()
@@ -102,7 +102,7 @@ func TestFailures(t *testing.T) {
 
 	failNotify := make(chan bool)
 	// use this to synchronize on here
-	s.logFailure = func(supervisor *Supervisor, s Service, cf float64, ft float64, r bool, error interface{}, stacktrace []byte) {
+	s.logFailure = func(supervisor *Supervisor, s Service, sn string, cf float64, ft float64, r bool, error interface{}, stacktrace []byte) {
 		failNotify <- r
 	}
 
@@ -274,10 +274,10 @@ func TestDefaultLogging(t *testing.T) {
 
 	service.take <- Happy
 
-	serviceName(&BarelyService{})
+	name := serviceName(&BarelyService{})
 
-	s.logBadStop(s, service)
-	s.logFailure(s, service, 1, 1, true, errors.New("test error"), []byte{})
+	s.logBadStop(s, service, name)
+	s.logFailure(s, service, name, 1, 1, true, errors.New("test error"), []byte{})
 
 	s.Stop()
 }
@@ -289,7 +289,7 @@ func TestNestedSupervisors(t *testing.T) {
 	super2 := NewSimple("Nested5")
 	service := NewService("Service5")
 
-	super2.logBadStop = func(*Supervisor, Service) {
+	super2.logBadStop = func(*Supervisor, Service, string) {
 		panic("Failed to copy logBadStop")
 	}
 
@@ -298,7 +298,7 @@ func TestNestedSupervisors(t *testing.T) {
 
 	// test the functions got copied from super1; if this panics, it didn't
 	// get copied
-	super2.logBadStop(super2, service)
+	super2.logBadStop(super2, service, "Service5")
 
 	go super1.Serve()
 	super1.sync()
@@ -356,7 +356,7 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 		return resumeChan
 	}
 	failNotify := make(chan struct{})
-	s.logBadStop = func(supervisor *Supervisor, s Service) {
+	s.logBadStop = func(supervisor *Supervisor, s Service, name string) {
 		failNotify <- struct{}{}
 	}
 
@@ -380,7 +380,7 @@ func TestRemovingHungService(t *testing.T) {
 	s.getAfterChan = func(d time.Duration) <-chan time.Time {
 		return resumeChan
 	}
-	s.logBadStop = func(supervisor *Supervisor, s Service) {
+	s.logBadStop = func(supervisor *Supervisor, s Service, name string) {
 		failNotify <- struct{}{}
 	}
 	service := NewService("Service WillHang")
@@ -485,7 +485,7 @@ func TestFailingSupervisors(t *testing.T) {
 	}
 	failNotify := make(chan string)
 	// use this to synchronize on here
-	s1.logFailure = func(supervisor *Supervisor, s Service, cf float64, ft float64, r bool, error interface{}, stacktrace []byte) {
+	s1.logFailure = func(supervisor *Supervisor, s Service, name string, cf float64, ft float64, r bool, error interface{}, stacktrace []byte) {
 		failNotify <- fmt.Sprintf("%s", s)
 	}
 

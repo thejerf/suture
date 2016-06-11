@@ -85,6 +85,11 @@ type ServiceToken struct {
 	id uint64
 }
 
+type serviceWithName struct {
+	Service Service
+	name    string
+}
+
 /*
 Supervisor is the core type of the module that represents a Supervisor.
 
@@ -120,8 +125,8 @@ type Supervisor struct {
 	failureBackoff       time.Duration
 	timeout              time.Duration
 	log                  func(string)
-	services             map[serviceID]Service
-	servicesShuttingDown map[serviceID]Service
+	services             map[serviceID]serviceWithName
+	servicesShuttingDown map[serviceID]serviceWithName
 	lastFail             time.Time
 	failures             float64
 	restartQueue         []serviceID
@@ -137,8 +142,8 @@ type Supervisor struct {
 	// I'll happily do it.
 	// But since I've now changed the signature on these once, I'm glad I
 	// didn't start with them public... :)
-	logBadStop func(*Supervisor, Service)
-	logFailure func(supervisor *Supervisor, service Service, currentFailures float64, failureThreshold float64, restarting bool, error interface{}, stacktrace []byte)
+	logBadStop func(*Supervisor, Service, string)
+	logFailure func(supervisor *Supervisor, service Service, serviceName string, currentFailures float64, failureThreshold float64, restarting bool, error interface{}, stacktrace []byte)
 	logBackoff func(*Supervisor, bool)
 
 	// avoid a dependency on github.com/thejerf/abtime by just implementing
@@ -243,16 +248,16 @@ func New(name string, spec Spec) (s *Supervisor) {
 
 	s.control = make(chan supervisorMessage)
 	s.liveness = make(chan struct{})
-	s.services = make(map[serviceID]Service)
-	s.servicesShuttingDown = make(map[serviceID]Service)
+	s.services = make(map[serviceID]serviceWithName)
+	s.servicesShuttingDown = make(map[serviceID]serviceWithName)
 	s.restartQueue = make([]serviceID, 0, 1)
 	s.resumeTimer = make(chan time.Time)
 
 	// set up the default logging handlers
-	s.logBadStop = func(supervisor *Supervisor, service Service) {
-		s.log(fmt.Sprintf("%s: Service %s failed to terminate in a timely manner", serviceName(supervisor), serviceName(service)))
+	s.logBadStop = func(supervisor *Supervisor, service Service, name string) {
+		s.log(fmt.Sprintf("%s: Service %s failed to terminate in a timely manner", supervisor.Name, name))
 	}
-	s.logFailure = func(supervisor *Supervisor, service Service, failures float64, threshold float64, restarting bool, err interface{}, st []byte) {
+	s.logFailure = func(supervisor *Supervisor, service Service, serviceName string, failures float64, threshold float64, restarting bool, err interface{}, st []byte) {
 		var errString string
 
 		e, canError := err.(error)
@@ -262,7 +267,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 			errString = fmt.Sprintf("%#v", err)
 		}
 
-		s.log(fmt.Sprintf("%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s, stacktrace: %s", serviceName(supervisor), serviceName(service), failures, threshold, restarting, errString, string(st)))
+		s.log(fmt.Sprintf("%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s, stacktrace: %s", supervisor.Name, serviceName, failures, threshold, restarting, errString, string(st)))
 	}
 	s.logBackoff = func(s *Supervisor, entering bool) {
 		if entering {
@@ -341,16 +346,13 @@ both the service and the spawned goroutine trying to stop it will be
 
 Stringer Interface
 
-It is not mandatory to implement the fmt.Stringer interface on your
-service, but if your Service does happen to implement that, the log
-messages that describe your service will use that when naming the
-service. Otherwise, you'll see the GoString of your service object,
-obtained via fmt.Sprintf("%#v", service).
+When a Service is added to a Supervisor, the Supervisor will create a
+string representation of that service used for logging.
 
-If you implement the Stringer interface, it must be callable from any
-goroutine, and must not be dependent on the state of your Service, i.e.,
-it must still successfully execute and return something even if your
-Service is completely crashed.
+If you implement the fmt.Stringer interface, that will be used.
+
+If you do not implement the fmt.Stringer interface, a default
+fmt.Sprintf("%#v") will be used.
 
 */
 type Service interface {
@@ -390,7 +392,7 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 		id := s.serviceCounter
 		s.serviceCounter++
 
-		s.services[id] = service
+		s.services[id] = serviceWithName{service, serviceName(service)}
 		s.restartQueue = append(s.restartQueue, id)
 
 		s.Unlock()
@@ -399,7 +401,7 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	s.Unlock()
 
 	response := make(chan serviceID)
-	s.control <- addService{service, response}
+	s.control <- addService{service, serviceName(service), response}
 	return ServiceToken{uint64(s.id)<<32 | uint64(<-response)}
 }
 
@@ -439,9 +441,9 @@ func (s *Supervisor) Serve() {
 
 	// for all the services I currently know about, start them
 	for _, id := range s.restartQueue {
-		service, present := s.services[id]
+		namedService, present := s.services[id]
 		if present {
-			s.runService(service, id)
+			s.runService(namedService.Service, id)
 		}
 	}
 	s.restartQueue = make([]serviceID, 0, 1)
@@ -461,7 +463,7 @@ func (s *Supervisor) Serve() {
 				id := s.serviceCounter
 				s.serviceCounter++
 
-				s.services[id] = msg.service
+				s.services[id] = serviceWithName{msg.service, msg.name}
 				s.runService(msg.service, id)
 
 				msg.response <- id
@@ -476,7 +478,7 @@ func (s *Supervisor) Serve() {
 			case listServices:
 				services := []Service{}
 				for _, service := range s.services {
-					services = append(services, service)
+					services = append(services, service.Service)
 				}
 				msg.c <- services
 			case syncSupervisor:
@@ -497,9 +499,9 @@ func (s *Supervisor) Serve() {
 			s.failures = 0
 			s.logBackoff(s, false)
 			for _, id := range s.restartQueue {
-				service, present := s.services[id]
+				namedService, present := s.services[id]
 				if present {
-					s.runService(service, id)
+					s.runService(namedService.Service, id)
 				}
 			}
 			s.restartQueue = make([]serviceID, 0, 1)
@@ -541,13 +543,13 @@ func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktra
 		curState := s.state
 		s.Unlock()
 		if curState == normal {
-			s.runService(failedService, id)
-			s.logFailure(s, failedService, s.failures, s.failureThreshold, true, err, stacktrace)
+			s.runService(failedService.Service, id)
+			s.logFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, true, err, stacktrace)
 		} else {
 			// FIXME: When restarting, check that the service still
 			// exists (it may have been stopped in the meantime)
 			s.restartQueue = append(s.restartQueue, id)
-			s.logFailure(s, failedService, s.failures, s.failureThreshold, false, err, stacktrace)
+			s.logFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, false, err, stacktrace)
 		}
 	}
 }
@@ -570,14 +572,14 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 }
 
 func (s *Supervisor) removeService(id serviceID, removedChan chan supervisorMessage) {
-	service, present := s.services[id]
+	namedService, present := s.services[id]
 	if present {
 		delete(s.services, id)
-		s.servicesShuttingDown[id] = service
+		s.servicesShuttingDown[id] = namedService
 		go func() {
 			successChan := make(chan bool)
 			go func() {
-				service.Stop()
+				namedService.Service.Stop()
 				successChan <- true
 			}()
 
@@ -585,7 +587,7 @@ func (s *Supervisor) removeService(id serviceID, removedChan chan supervisorMess
 			case <-successChan:
 				// Life is good!
 			case <-s.getAfterChan(s.timeout):
-				s.logBadStop(s, service)
+				s.logBadStop(s, namedService.Service, namedService.name)
 			}
 			removedChan <- serviceTerminated{id}
 		}()
@@ -596,12 +598,12 @@ func (s *Supervisor) stopSupervisor() {
 	notifyDone := make(chan serviceID)
 
 	for id := range s.services {
-		service, present := s.services[id]
+		namedService, present := s.services[id]
 		if present {
 			delete(s.services, id)
-			s.servicesShuttingDown[id] = service
+			s.servicesShuttingDown[id] = namedService
 			go func(sID serviceID) {
-				service.Stop()
+				namedService.Service.Stop()
 				notifyDone <- sID
 			}(id)
 		}
@@ -613,8 +615,8 @@ func (s *Supervisor) stopSupervisor() {
 		case id := <-notifyDone:
 			delete(s.servicesShuttingDown, id)
 		case <-timeout:
-			for _, service := range s.servicesShuttingDown {
-				s.logBadStop(s, service)
+			for _, namedService := range s.servicesShuttingDown {
+				s.logBadStop(s, namedService.Service, namedService.name)
 			}
 			return
 		}
@@ -720,6 +722,7 @@ func (s serviceEnded) isSupervisorMessage() {}
 // added by the Add() method
 type addService struct {
 	service  Service
+	name     string
 	response chan serviceID
 }
 
