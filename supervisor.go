@@ -7,7 +7,6 @@ import (
 	"math"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +19,7 @@ const (
 type supervisorID uint32
 type serviceID uint32
 
+var currentSupervisorIDL sync.Mutex
 var currentSupervisorID uint32
 
 // ErrWrongSupervisor is returned by the (*Supervisor).Remove method
@@ -158,7 +158,10 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s = new(Supervisor)
 
 	s.Name = name
-	s.id = supervisorID(atomic.AddUint32(&currentSupervisorID, 1))
+	currentSupervisorIDL.Lock()
+	currentSupervisorID++
+	s.id = supervisorID(currentSupervisorID)
+	currentSupervisorIDL.Unlock()
 
 	if spec.Log == nil {
 		s.log = func(msg string) {
