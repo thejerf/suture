@@ -48,15 +48,16 @@ Changelog
 
 suture uses semantic versioning.
 
-1. 2.0.0 (release in progress, not yet tagged)
-  * A change to the signature of the logging methods:
+1. 2.0.0
+  * Major version due to change to the signature of the logging methods:
 
     A race condition could occur when the Supervisor rendered the service
     name via fmt.Sprintf("%#v"), because fmt examines the entire object
     regardless of locks through reflection. 2.0.0 changes the supervisors
     to snapshot the Service's name once, when it is added, and to pass it
-    to the logging methods. This signature change prompts the 2.0 semantic
-    API.
+    to the logging methods.
+  * Removal of use of sync/atomic due to possible brokenness in the Debian
+    architecture.
 1. 1.1.2
   * TravisCI showed that the fix for 1.1.1 induced a deadlock in Go 1.4 and
     before.
