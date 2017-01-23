@@ -7,7 +7,7 @@ Suture provides Erlang-ish supervisor trees for Go. "Supervisor trees" ->
 "sutree" -> "suture" -> holds your code together when it's trying to die.
 
 This library has hit maturity, and isn't expected to be changed
-radically. This can also be imported via gopkg.in/thejerf/suture.v1 .
+radically. This can also be imported via gopkg.in/thejerf/suture.v2 .
 
 It is intended to deal gracefully with the real failure cases that can
 occur with supervision trees (such as burning all your CPU time endlessly
