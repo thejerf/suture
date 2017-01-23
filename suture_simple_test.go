@@ -33,7 +33,7 @@ func ExampleNew_simple() {
 	service := &Incrementor{0, make(chan int), make(chan bool)}
 	supervisor.Add(service)
 
-	go supervisor.ServeBackground()
+	supervisor.ServeBackground()
 
 	fmt.Println("Got:", <-service.next)
 	fmt.Println("Got:", <-service.next)
