@@ -418,7 +418,7 @@ func TestRemoveService(t *testing.T) {
 	}
 	<-service.stop
 
-	err = s.Remove(ServiceToken{1<<36 + 1})
+	err = s.Remove(ServiceToken{id.id + (1 << 32)})
 	if err != ErrWrongSupervisor {
 		t.Fatal("Did not detect that the ServiceToken was wrong")
 	}

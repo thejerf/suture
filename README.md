@@ -48,6 +48,9 @@ Changelog
 
 suture uses semantic versioning.
 
+1. 2.0.1
+  * __Test code change only__. Addresses the possibility that one of the
+    tests can spuriously fail if they run in a certain order.
 1. 2.0.0
   * Major version due to change to the signature of the logging methods:
 
