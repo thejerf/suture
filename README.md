@@ -48,6 +48,10 @@ Changelog
 
 suture uses semantic versioning.
 
+1. 2.0.2
+  * Fixed issue #21. gccgo doesn't like `case (<-c)`, with the parentheses.
+    Of course the parens aren't doing anything useful anyhow. No behavior
+    changes.
 1. 2.0.1
   * __Test code change only__. Addresses the possibility that one of the
     tests can spuriously fail if they run in a certain order.

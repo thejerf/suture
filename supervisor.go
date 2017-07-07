@@ -521,7 +521,7 @@ func (s *Supervisor) sendControl(sm supervisorMessage) bool {
 	select {
 	case s.control <- sm:
 		return true
-	case _, _ = (<-s.liveness):
+	case _, _ = <-s.liveness:
 		return false
 	}
 }
