@@ -593,7 +593,6 @@ func (s *Supervisor) Services() []Service {
 
 	if s.sendControl(ls) {
 		return <-ls.c
-	} else {
-		return nil
 	}
+	return nil
 }
