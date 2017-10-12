@@ -123,6 +123,9 @@ type Spec struct {
 	FailureThreshold float64
 	FailureBackoff   time.Duration
 	Timeout          time.Duration
+	LogBadStop       BadStopLogger
+	LogFailure       FailureLogger
+	LogBackoff       BackoffLogger
 }
 
 /*
@@ -217,7 +220,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.resumeTimer = make(chan time.Time)
 
 	// set up the default logging handlers
-	if s.LogBadStop == nil {
+	if spec.LogBadStop == nil {
 		s.LogBadStop = func(sup *Supervisor, _ Service, name string) {
 			s.log(fmt.Sprintf(
 				"%s: Service %s failed to terminate in a timely manner",
@@ -227,7 +230,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 		}
 	}
 
-	if s.LogFailure == nil {
+	if spec.LogFailure == nil {
 		s.LogFailure = func(
 			sup *Supervisor,
 			_ Service,
@@ -260,7 +263,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 		}
 	}
 
-	if s.LogBackoff == nil {
+	if spec.LogBackoff == nil {
 		s.LogBackoff = func(s *Supervisor, entering bool) {
 			if entering {
 				s.log("Entering the backoff state.")
