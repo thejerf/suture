@@ -228,6 +228,8 @@ func New(name string, spec Spec) (s *Supervisor) {
 				name,
 			))
 		}
+	} else {
+		s.LogBadStop = spec.LogBadStop
 	}
 
 	if spec.LogFailure == nil {
@@ -261,6 +263,8 @@ func New(name string, spec Spec) (s *Supervisor) {
 				string(st),
 			))
 		}
+	} else {
+		s.LogFailure = spec.LogFailure
 	}
 
 	if spec.LogBackoff == nil {
@@ -271,6 +275,8 @@ func New(name string, spec Spec) (s *Supervisor) {
 				s.log("Exiting backoff state.")
 			}
 		}
+	} else {
+		s.LogBackoff = spec.LogBackoff
 	}
 
 	return
