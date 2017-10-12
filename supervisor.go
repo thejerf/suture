@@ -19,6 +19,26 @@ const (
 type supervisorID uint32
 type serviceID uint32
 
+type (
+	// BadStopLogger is called when a service fails to properly stop
+	BadStopLogger func(*Supervisor, Service, string)
+
+	// FailureLogger is called when a service fails
+	FailureLogger func(
+		supervisor *Supervisor,
+		service Service,
+		serviceName string,
+		currentFailures float64,
+		failureThreshold float64,
+		restarting bool,
+		error interface{},
+		stacktrace []byte,
+	)
+
+	// BackoffLogger is called when the supervisor enters or exits backoff mode
+	BackoffLogger func(s *Supervisor, entering bool)
+)
+
 var currentSupervisorIDL sync.Mutex
 var currentSupervisorID uint32
 
@@ -82,16 +102,9 @@ type Supervisor struct {
 	liveness             chan struct{}
 	resumeTimer          <-chan time.Time
 
-	// The testing uses the ability to grab these individual logging functions
-	// and get inside of suture's handling at a deep level.
-	// If you ever come up with some need to get into these, submit a pull
-	// request to make them public and some smidge of justification, and
-	// I'll happily do it.
-	// But since I've now changed the signature on these once, I'm glad I
-	// didn't start with them public... :)
-	logBadStop func(*Supervisor, Service, string)
-	logFailure func(supervisor *Supervisor, service Service, serviceName string, currentFailures float64, failureThreshold float64, restarting bool, error interface{}, stacktrace []byte)
-	logBackoff func(*Supervisor, bool)
+	LogBadStop BadStopLogger
+	LogFailure FailureLogger
+	LogBackoff BackoffLogger
 
 	// avoid a dependency on github.com/thejerf/abtime by just implementing
 	// a minimal chunk.
@@ -204,26 +217,56 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.resumeTimer = make(chan time.Time)
 
 	// set up the default logging handlers
-	s.logBadStop = func(supervisor *Supervisor, service Service, name string) {
-		s.log(fmt.Sprintf("%s: Service %s failed to terminate in a timely manner", supervisor.Name, name))
-	}
-	s.logFailure = func(supervisor *Supervisor, service Service, serviceName string, failures float64, threshold float64, restarting bool, err interface{}, st []byte) {
-		var errString string
-
-		e, canError := err.(error)
-		if canError {
-			errString = e.Error()
-		} else {
-			errString = fmt.Sprintf("%#v", err)
+	if s.LogBadStop == nil {
+		s.LogBadStop = func(sup *Supervisor, _ Service, name string) {
+			s.log(fmt.Sprintf(
+				"%s: Service %s failed to terminate in a timely manner",
+				sup.Name,
+				name,
+			))
 		}
-
-		s.log(fmt.Sprintf("%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s, stacktrace: %s", supervisor.Name, serviceName, failures, threshold, restarting, errString, string(st)))
 	}
-	s.logBackoff = func(s *Supervisor, entering bool) {
-		if entering {
-			s.log("Entering the backoff state.")
-		} else {
-			s.log("Exiting backoff state.")
+
+	if s.LogFailure == nil {
+		s.LogFailure = func(
+			sup *Supervisor,
+			_ Service,
+			svcName string,
+			f float64,
+			thresh float64,
+			restarting bool,
+			err interface{},
+			st []byte,
+		) {
+			var errString string
+
+			e, canError := err.(error)
+			if canError {
+				errString = e.Error()
+			} else {
+				errString = fmt.Sprintf("%#v", err)
+			}
+
+			s.log(fmt.Sprintf(
+				"%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s, stacktrace: %s",
+				sup.Name,
+				svcName,
+				f,
+				thresh,
+				restarting,
+				errString,
+				string(st),
+			))
+		}
+	}
+
+	if s.LogBackoff == nil {
+		s.LogBackoff = func(s *Supervisor, entering bool) {
+			if entering {
+				s.log("Entering the backoff state.")
+			} else {
+				s.log("Exiting backoff state.")
+			}
 		}
 	}
 
@@ -268,9 +311,9 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	}
 
 	if supervisor, isSupervisor := service.(*Supervisor); isSupervisor {
-		supervisor.logBadStop = s.logBadStop
-		supervisor.logFailure = s.logFailure
-		supervisor.logBackoff = s.logBackoff
+		supervisor.LogBadStop = s.LogBadStop
+		supervisor.LogFailure = s.LogFailure
+		supervisor.LogBackoff = s.LogBackoff
 	}
 
 	s.Lock()
@@ -383,7 +426,7 @@ func (s *Supervisor) Serve() {
 			s.state = normal
 			s.Unlock()
 			s.failures = 0
-			s.logBackoff(s, false)
+			s.LogBackoff(s, false)
 			for _, id := range s.restartQueue {
 				namedService, present := s.services[id]
 				if present {
@@ -411,7 +454,7 @@ func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktra
 		s.Lock()
 		s.state = paused
 		s.Unlock()
-		s.logBackoff(s, true)
+		s.LogBackoff(s, true)
 		s.resumeTimer = s.getAfterChan(s.failureBackoff)
 	}
 
@@ -430,12 +473,12 @@ func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktra
 		s.Unlock()
 		if curState == normal {
 			s.runService(failedService.Service, id)
-			s.logFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, true, err, stacktrace)
+			s.LogFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, true, err, stacktrace)
 		} else {
 			// FIXME: When restarting, check that the service still
 			// exists (it may have been stopped in the meantime)
 			s.restartQueue = append(s.restartQueue, id)
-			s.logFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, false, err, stacktrace)
+			s.LogFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, false, err, stacktrace)
 		}
 	}
 }
@@ -473,7 +516,7 @@ func (s *Supervisor) removeService(id serviceID, removedChan chan supervisorMess
 			case <-successChan:
 				// Life is good!
 			case <-s.getAfterChan(s.timeout):
-				s.logBadStop(s, namedService.Service, namedService.name)
+				s.LogBadStop(s, namedService.Service, namedService.name)
 			}
 			removedChan <- serviceTerminated{id}
 		}()
@@ -502,7 +545,7 @@ func (s *Supervisor) stopSupervisor() {
 			delete(s.servicesShuttingDown, id)
 		case <-timeout:
 			for _, namedService := range s.servicesShuttingDown {
-				s.logBadStop(s, namedService.Service, namedService.name)
+				s.LogBadStop(s, namedService.Service, namedService.name)
 			}
 			return
 		}
