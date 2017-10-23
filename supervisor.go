@@ -46,6 +46,10 @@ var currentSupervisorID uint32
 // if you pass a ServiceToken from the wrong Supervisor.
 var ErrWrongSupervisor = errors.New("wrong supervisor for this service token, no service removed")
 
+// ErrTimeout is returned when an attempt to RemoveAndWait for a service to
+// stop has timed out.
+var ErrTimeout = errors.New("waiting for service to stop has timed out")
+
 // ServiceToken is an opaque identifier that can be used to terminate a service that
 // has been Add()ed to a Supervisor.
 type ServiceToken struct {
@@ -410,7 +414,7 @@ func (s *Supervisor) Serve() {
 
 				msg.response <- id
 			case removeService:
-				s.removeService(msg.id, s.control)
+				s.removeService(msg.id, msg.notification, s.control)
 			case serviceTerminated:
 				delete(s.servicesShuttingDown, msg.id)
 			case stopSupervisor:
@@ -448,6 +452,17 @@ func (s *Supervisor) Serve() {
 			}
 			s.restartQueue = make([]serviceID, 0, 1)
 		}
+	}
+}
+
+// Stop stops the Supervisor.
+//
+// This function will not return until either all Services have stopped, or
+// they timeout after the timeout value given to the Supervisor at creation.
+func (s *Supervisor) Stop() {
+	done := make(chan struct{})
+	if s.sendControl(stopSupervisor{done}) {
+		<-done
 	}
 }
 
@@ -513,7 +528,7 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 	}()
 }
 
-func (s *Supervisor) removeService(id serviceID, removedChan chan supervisorMessage) {
+func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{}, removedChan chan supervisorMessage) {
 	namedService, present := s.services[id]
 	if present {
 		delete(s.services, id)
@@ -523,6 +538,9 @@ func (s *Supervisor) removeService(id serviceID, removedChan chan supervisorMess
 			go func() {
 				namedService.Service.Stop()
 				successChan <- true
+				if notificationChan != nil {
+					notificationChan <- struct{}{}
+				}
 			}()
 
 			select {
@@ -533,6 +551,10 @@ func (s *Supervisor) removeService(id serviceID, removedChan chan supervisorMess
 			}
 			removedChan <- serviceTerminated{id}
 		}()
+	} else {
+		if notificationChan != nil {
+			notificationChan <- struct{}{}
+		}
 	}
 }
 
@@ -552,6 +574,7 @@ func (s *Supervisor) stopSupervisor() {
 	}
 
 	timeout := s.getAfterChan(s.timeout)
+SHUTTING_DOWN_SERVICES:
 	for len(s.servicesShuttingDown) > 0 {
 		select {
 		case id := <-notifyDone:
@@ -560,7 +583,9 @@ func (s *Supervisor) stopSupervisor() {
 			for _, namedService := range s.servicesShuttingDown {
 				s.LogBadStop(s, namedService.Service, namedService.name)
 			}
-			return
+
+			// failed remove statements will log the errors.
+			break SHUTTING_DOWN_SERVICES
 		}
 	}
 
@@ -584,15 +609,63 @@ func (s *Supervisor) sendControl(sm supervisorMessage) bool {
 
 /*
 Remove will remove the given service from the Supervisor, and attempt to Stop() it.
-The ServiceID token comes from the Add() call.
+The ServiceID token comes from the Add() call. This returns without waiting
+for the service to stop.
 */
 func (s *Supervisor) Remove(id ServiceToken) error {
 	sID := supervisorID(id.id >> 32)
 	if sID != s.id {
 		return ErrWrongSupervisor
 	}
-	s.sendControl(removeService{serviceID(id.id & 0xffffffff)})
+	// no meaningful error handling if this is false
+	_ = s.sendControl(removeService{serviceID(id.id & 0xffffffff), nil})
 	return nil
+}
+
+/*
+RemoveAndWait will remove the given service from the Supervisor and attempt
+to Stop() it. It will wait up to the given timeout value for the service to
+terminate. A timeout value of 0 means to wait forever.
+
+If a nil error is returned from this function
+*/
+func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error {
+	sID := supervisorID(id.id >> 32)
+	if sID != s.id {
+		return ErrWrongSupervisor
+	}
+
+	var timeoutC <-chan time.Time
+
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		timeoutC = timer.C
+	}
+
+	notificationC := make(chan struct{})
+
+	sentControl := s.sendControl(removeService{serviceID(id.id & 0xffffffff), notificationC})
+
+	if sentControl == false {
+		return ErrTimeout
+	}
+
+	select {
+	case <-notificationC:
+		// normal case; the service is terminated.
+		return nil
+
+	// This occurs if the entire supervisor ends without the service
+	// having terminated, and includes the timeout the supervisor
+	// itself waited before closing the liveness channel.
+	case _, _ = <-s.liveness:
+		return ErrTimeout
+
+	// The local timeout.
+	case <-timeoutC:
+		return ErrTimeout
+	}
 }
 
 /*

@@ -422,6 +422,10 @@ func TestRemoveService(t *testing.T) {
 	if err != ErrWrongSupervisor {
 		t.Fatal("Did not detect that the ServiceToken was wrong")
 	}
+	err = s.RemoveAndWait(ServiceToken{id.id + (1 << 32)}, time.Second)
+	if err != ErrWrongSupervisor {
+		t.Fatal("Did not detect that the ServiceToken was wrong")
+	}
 }
 
 func TestFailureToConstruct(t *testing.T) {
@@ -531,6 +535,78 @@ func TestIssue11(t *testing.T) {
 	s.Add(subsuper)
 
 	subsuper.Add(NewService("may cause data race"))
+}
+
+func TestRemoveAndWait(t *testing.T) {
+	t.Parallel()
+
+	s := NewSimple("main")
+	s.timeout = time.Second
+	s.ServeBackground()
+
+	service := NewService("A1")
+	token := s.Add(service)
+	<-service.started
+
+	// Normal termination case; without the useStopChan flag on the
+	// NewService, this will just terminate. So we can freely use a long
+	// timeout, because it should not trigger.
+	err := s.RemoveAndWait(token, time.Second)
+	if err != nil {
+		t.Fatal("Happy case for RemoveAndWait failed: " + err.Error())
+	}
+	// Removing already-removed service does unblock the channel
+	err = s.RemoveAndWait(token, time.Second)
+	if err != nil {
+		t.Fatal("Removing already-removed service failed: " + err.Error())
+	}
+
+	service = NewService("A2")
+	token = s.Add(service)
+	<-service.started
+	service.take <- Hang
+
+	// Abnormal case; the service is hung until we release it
+	err = s.RemoveAndWait(token, time.Millisecond)
+	if err == nil {
+		t.Fatal("RemoveAndWait unexpectedly returning that everything is fine")
+	}
+	if err != ErrTimeout {
+		// laziness; one of the unhappy results is err == nil, which will
+		// panic here, but, hey, that's a failing test, right?
+		t.Fatal("Unexpected result for RemoveAndWait on frozen service: " +
+			err.Error())
+	}
+
+	// Abnormal case: The service is hung and we get the supervisor
+	// stopping instead.
+	service = NewService("A3")
+	token = s.Add(service)
+	<-service.started
+	s.Stop()
+	err = s.RemoveAndWait(token, 10*time.Millisecond)
+
+	if err != ErrTimeout {
+		t.Fatal("Unexpected result for RemoveAndWait on a stopped service: " + err.Error())
+	}
+}
+
+func TestCoverage(t *testing.T) {
+	New("testing coverage", Spec{
+		LogBadStop: func(*Supervisor, Service, string) {},
+		LogFailure: func(
+			supervisor *Supervisor,
+			service Service,
+			serviceName string,
+			currentFailures float64,
+			failureThreshold float64,
+			restarting bool,
+			error interface{},
+			stacktrace []byte,
+		) {
+		},
+		LogBackoff: func(s *Supervisor, entering bool) {},
+	})
 }
 
 // http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
