@@ -82,6 +82,9 @@ new goroutine. You do not want to just:
 because that will briefly create a race condition as it starts up, if you
 try to .Add() services immediately afterward.
 
+The various Log function should only be modified while the Supervisor is
+not running, to prevent race conditions.
+
 */
 type Supervisor struct {
 	Name string
@@ -311,7 +314,8 @@ to terminate the service.
 As a special behavior, if the service added is itself a supervisor, the
 supervisor being added will copy the Log function from the Supervisor it
 is being added to. This allows factoring out providing a Supervisor
-from its logging.
+from its logging. This unconditionally overwrites the child Supervisor's
+logging functions.
 
 */
 func (s *Supervisor) Add(service Service) ServiceToken {

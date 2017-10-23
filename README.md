@@ -48,6 +48,8 @@ Changelog
 
 suture uses semantic versioning.
 
+1. 2.0.3
+  * Accepted PR #23, making the logging functions in the supervisor public.
 1. 2.0.2
   * Fixed issue #21. gccgo doesn't like `case (<-c)`, with the parentheses.
     Of course the parens aren't doing anything useful anyhow. No behavior
