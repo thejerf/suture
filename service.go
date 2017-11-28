@@ -63,3 +63,19 @@ type Service interface {
 	Serve()
 	Stop()
 }
+
+/*
+FiniteService is the interface that describes a service which is allowed to exit
+gracefully, without requiring automatic restarts by the supervisor. Such services 
+may be long-running and benefit from supervision, yet still have finite termination 
+conditions.
+
+Complete Method
+
+This method is used to determine whether, upon graceful exit of the Serve() method,
+the FiniteService should be cleanly removed from the supervisor. If Complete() returns
+true, then the FiniteService will be removed from the containing supervisor.
+*/
+type FiniteService interface {
+	Complete() bool
+}

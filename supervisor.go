@@ -403,7 +403,14 @@ func (s *Supervisor) Serve() {
 			case serviceEnded:
 				service, monitored := s.services[msg.id]
 				if monitored {
-					s.handleFailedService(msg.id, fmt.Sprintf("%s returned unexpectedly", service), []byte("[unknown stack trace]"))
+					if msg.complete {
+						delete(s.services, msg.id)
+						go func() {
+							service.Service.Stop()
+						}()
+					} else {
+						s.handleFailedService(msg.id, fmt.Sprintf("%s returned unexpectedly", service), []byte("[unknown stack trace]"))
+					}
 				}
 			case addService:
 				id := s.serviceCounter
@@ -524,7 +531,12 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 
 		service.Serve()
 
-		s.serviceEnded(id)
+		complete := false
+		if finite, ok := service.(FiniteService); ok && finite.Complete() {
+			complete = true
+		}
+
+		s.serviceEnded(id, complete)
 	}()
 }
 
