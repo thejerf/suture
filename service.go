@@ -58,6 +58,12 @@ If you implement the fmt.Stringer interface, that will be used.
 If you do not implement the fmt.Stringer interface, a default
 fmt.Sprintf("%#v") will be used.
 
+Optional Interface
+
+Services may optionally implement IsCompletable, which allows a service
+to indicate to a supervisor that it does not need to be restarted if
+it has terminated.
+
 */
 type Service interface {
 	Serve()
@@ -65,17 +71,17 @@ type Service interface {
 }
 
 /*
-FiniteService is the interface that describes a service which is allowed to exit
-gracefully, without requiring automatic restarts by the supervisor. Such services 
-may be long-running and benefit from supervision, yet still have finite termination 
-conditions.
 
-Complete Method
+IsCompletable is an optionally-implementable interface that allows a service
+to report to a supervisor that it does not need to be restarted because it
+has terminated normally. When a Service is going to be restarted, the
+supervisor will check for this method, and if Complete returns true, the
+service is removed from the supervisor instead of restarted.
 
-This method is used to determine whether, upon graceful exit of the Serve() method,
-the FiniteService should be cleanly removed from the supervisor. If Complete() returns
-true, then the FiniteService will be removed from the containing supervisor.
+This is only executed when the service is not running because it has
+terminated, and has not yet been restarted.
+
 */
-type FiniteService interface {
+type IsCompletable interface {
 	Complete() bool
 }

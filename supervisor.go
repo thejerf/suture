@@ -532,7 +532,7 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 		service.Serve()
 
 		complete := false
-		if finite, ok := service.(FiniteService); ok && finite.Complete() {
+		if completable, ok := service.(IsCompletable); ok && completable.Complete() {
 			complete = true
 		}
 

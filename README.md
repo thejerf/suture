@@ -48,10 +48,13 @@ Changelog
 
 suture uses semantic versioning.
 
-1. 2.0.3 (on master, not yet released)
+1. 2.0.3
   * Accepted PR #23, making the logging functions in the supervisor public.
   * Added a new Supervisor method RemoveAndWait, allowing you to make a
     best effort way to wait for a service to terminate.
+  * Accepted PR #24, adding an optional IsCompletable interface that
+    Services can implement that indicates they do not need to be restarted
+    upon a normal return.
 1. 2.0.2
   * Fixed issue #21. gccgo doesn't like `case (<-c)`, with the parentheses.
     Of course the parens aren't doing anything useful anyhow. No behavior

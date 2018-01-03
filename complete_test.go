@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	JOB_LIMIT = 2
+	JobLimit = 2
 )
 
 type IncrementorJob struct {
@@ -25,7 +25,7 @@ func (i *IncrementorJob) Serve() {
 		select {
 		case i.next <- i.current + 1:
 			i.current++
-			if i.current >= JOB_LIMIT {
+			if i.current >= JobLimit {
 				return
 			}
 		case <-i.stop:
@@ -40,10 +40,10 @@ func (i *IncrementorJob) Serve() {
 
 func (i *IncrementorJob) Complete() bool {
 	// fmt.Println("IncrementorJob exited as Complete()")
-	return i.current >= JOB_LIMIT
+	return i.current >= JobLimit
 }
 
-func TestFiniteJob(t *testing.T) {
+func TestCompleteJob(t *testing.T) {
 	supervisor := NewSimple("Supervisor")
 	service := &IncrementorJob{0, make(chan int), make(chan bool)}
 	supervisor.Add(service)
