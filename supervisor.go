@@ -546,10 +546,10 @@ func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{},
 		delete(s.services, id)
 		s.servicesShuttingDown[id] = namedService
 		go func() {
-			successChan := make(chan bool)
+			successChan := make(chan struct{})
 			go func() {
 				namedService.Service.Stop()
-				successChan <- true
+				close(successChan)
 				if notificationChan != nil {
 					notificationChan <- struct{}{}
 				}
