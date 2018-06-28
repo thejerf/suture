@@ -589,6 +589,26 @@ func TestRemoveAndWait(t *testing.T) {
 	if err != ErrTimeout {
 		t.Fatal("Unexpected result for RemoveAndWait on a stopped service: " + err.Error())
 	}
+
+	// Abnormal case: The service takes long to terminate, which takes more than the timeout of the spec, but
+	// if the service eventually terminates, this does not hang RemoveAndWait.
+	s = NewSimple("main")
+	s.timeout = time.Millisecond
+	s.ServeBackground()
+	service = NewService("A1")
+	token = s.Add(service)
+	<-service.started
+	service.take <- Hang
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		service.release <- true
+	}()
+
+	err = s.RemoveAndWait(token, 0)
+	if err != nil {
+		t.Fatal("Unexpected result of RemoveAndWait: " + err.Error())
+	}
 }
 
 func TestCoverage(t *testing.T) {
