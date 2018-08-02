@@ -639,7 +639,10 @@ RemoveAndWait will remove the given service from the Supervisor and attempt
 to Stop() it. It will wait up to the given timeout value for the service to
 terminate. A timeout value of 0 means to wait forever.
 
-If a nil error is returned from this function
+If a nil error is returned from this function, then the service was
+terminated normally. If either the supervisor terminates or the timeout
+passes, ErrTimeout is returned. (If this isn't even the right supervisor
+ErrWrongSupervisor is returned.)
 */
 func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error {
 	sID := supervisorID(id.id >> 32)
