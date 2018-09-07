@@ -48,6 +48,9 @@ Changelog
 
 suture uses semantic versioning.
 
+* 2.0.4
+  * Added option PassThroughPanics, to allow panics to propagate up through
+    the supervisor.
 * 2.0.3
   * Accepted PR #23, making the logging functions in the supervisor public.
   * Added a new Supervisor method RemoveAndWait, allowing you to make a
