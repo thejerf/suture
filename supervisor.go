@@ -73,7 +73,7 @@ type Jitter interface {
 // NoJitter does not apply any jitter to the input duration
 type NoJitter struct{}
 
-// Jitter the input duration d unchanged.
+// Jitter leaves the input duration d unchanged.
 func (NoJitter) Jitter(d time.Duration) time.Duration { return d }
 
 // DefaultJitter is the jitter function that is applied when spec.BackoffJitter
