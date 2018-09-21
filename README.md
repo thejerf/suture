@@ -48,6 +48,11 @@ Changelog
 
 suture uses semantic versioning.
 
+* 3.0:
+  * Added a default jitter of up to 50% on the restart intervals. While
+    this is a backwards-compatible change from a source perspective, this
+    does represent a non-trivial behavior change. It should generally be a
+    good thing, but this is released as a major version as a warning.
 * 2.0.4
   * Added option PassThroughPanics, to allow panics to propagate up through
     the supervisor.

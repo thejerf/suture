@@ -17,8 +17,6 @@ const (
 	paused
 )
 
-func init() { rand.Seed(time.Now().UnixNano()) }
-
 type supervisorID uint32
 type serviceID uint32
 
@@ -78,11 +76,19 @@ func (NoJitter) Jitter(d time.Duration) time.Duration { return d }
 
 // DefaultJitter is the jitter function that is applied when spec.BackoffJitter
 // is set to nil.
-type DefaultJitter struct{}
+type DefaultJitter struct {
+	rand *rand.Rand
+}
 
-// Jitter the basetime, d, by adding it to [0.0 0.5)*d
-func (DefaultJitter) Jitter(d time.Duration) time.Duration {
-	jitter := math.Abs(rand.Float64() - .5) // interval [0.0 0.5)
+// Jitter will jitter the backoff time by uniformly distributing it into
+// the range [FailureBackoff, 1.5 * FailureBackoff).
+func (dj *DefaultJitter) Jitter(d time.Duration) time.Duration {
+	// this is only called by the core supervisor loop, so it is
+	// single-thread safe.
+	if dj.rand == nil {
+		dj.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	jitter := dj.rand.Float64() / 2
 	return d + time.Duration(float64(d)*jitter)
 }
 
