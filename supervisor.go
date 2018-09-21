@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"runtime"
 	"sync"
 	"time"
@@ -15,6 +16,8 @@ const (
 	normal
 	paused
 )
+
+func init() { rand.Seed(time.Now().UnixNano()) }
 
 type supervisorID uint32
 type serviceID uint32
@@ -61,6 +64,28 @@ type serviceWithName struct {
 	name    string
 }
 
+// Jitter returns the sum of the input duration and a random jitter.  It is
+// compatible with the jitter functions in github.com/lthibault/jitterbug.
+type Jitter interface {
+	Jitter(time.Duration) time.Duration
+}
+
+// NoJitter does not apply any jitter to the input duration
+type NoJitter struct{}
+
+// Jitter leaves the input duration d unchanged.
+func (NoJitter) Jitter(d time.Duration) time.Duration { return d }
+
+// DefaultJitter is the jitter function that is applied when spec.BackoffJitter
+// is set to nil.
+type DefaultJitter struct{}
+
+// Jitter the basetime, d, by adding it to [0.0 0.5)*d
+func (DefaultJitter) Jitter(d time.Duration) time.Duration {
+	jitter := math.Abs(rand.Float64() - .5) // interval [0.0 0.5)
+	return d + time.Duration(float64(d)*jitter)
+}
+
 /*
 Supervisor is the core type of the module that represents a Supervisor.
 
@@ -96,6 +121,7 @@ type Supervisor struct {
 	failureDecay         float64
 	failureThreshold     float64
 	failureBackoff       time.Duration
+	backoffJitter        Jitter
 	timeout              time.Duration
 	log                  func(string)
 	services             map[serviceID]serviceWithName
@@ -132,6 +158,7 @@ type Spec struct {
 	FailureDecay      float64
 	FailureThreshold  float64
 	FailureBackoff    time.Duration
+	BackoffJitter     Jitter
 	Timeout           time.Duration
 	LogBadStop        BadStopLogger
 	LogFailure        FailureLogger
@@ -153,6 +180,7 @@ If not set, the following values are used:
  * FailureThreshold:  5 failures
  * FailureBackoff:    15 seconds
  * Timeout:           10 seconds
+ * BackoffJitter:     DefaultJitter
 
 The Log function will be called when errors occur. Suture will log the
 following:
@@ -215,6 +243,11 @@ func New(name string, spec Spec) (s *Supervisor) {
 		s.failureBackoff = time.Second * 15
 	} else {
 		s.failureBackoff = spec.FailureBackoff
+	}
+	if spec.BackoffJitter == nil {
+		s.backoffJitter = &DefaultJitter{}
+	} else {
+		s.backoffJitter = spec.BackoffJitter
 	}
 	if spec.Timeout == 0 {
 		s.timeout = time.Second * 10
@@ -498,7 +531,7 @@ func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktra
 		s.state = paused
 		s.Unlock()
 		s.LogBackoff(s, true)
-		s.resumeTimer = s.getAfterChan(s.failureBackoff)
+		s.resumeTimer = s.getAfterChan(s.backoffJitter.Jitter(s.failureBackoff))
 	}
 
 	s.lastFail = now
