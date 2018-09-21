@@ -92,7 +92,6 @@ not running, to prevent race conditions.
 */
 type Supervisor struct {
 	Name string
-	id   supervisorID
 
 	failureDecay         float64
 	failureThreshold     float64
@@ -108,7 +107,6 @@ type Supervisor struct {
 	control              chan supervisorMessage
 	liveness             chan struct{}
 	resumeTimer          <-chan time.Time
-	recoverPanics        bool
 
 	LogBadStop BadStopLogger
 	LogFailure FailureLogger
@@ -120,7 +118,11 @@ type Supervisor struct {
 	getAfterChan func(time.Duration) <-chan time.Time
 
 	sync.Mutex
-	state uint8
+
+	// malign leftovers
+	id            supervisorID
+	state         uint8
+	recoverPanics bool
 }
 
 // Spec is used to pass arguments to the New function to create a
@@ -447,7 +449,7 @@ func (s *Supervisor) Serve() {
 				// used only by tests
 				panic("Panicking as requested!")
 			}
-		case _ = <-s.resumeTimer:
+		case <-s.resumeTimer:
 			// We're resuming normal operation after a pause due to
 			// excessive thrashing
 			// FIXME: Ought to permit some spacing of these functions, rather
@@ -529,7 +531,7 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 		if s.recoverPanics {
 			defer func() {
 				if r := recover(); r != nil {
-					buf := make([]byte, 65535, 65535)
+					buf := make([]byte, 65535)
 					written := runtime.Stack(buf, false)
 					buf = buf[:written]
 					s.fail(id, r, buf)
@@ -610,7 +612,6 @@ SHUTTING_DOWN_SERVICES:
 	}
 
 	close(s.liveness)
-	return
 }
 
 // String implements the fmt.Stringer interface.
@@ -622,7 +623,7 @@ func (s *Supervisor) sendControl(sm supervisorMessage) bool {
 	select {
 	case s.control <- sm:
 		return true
-	case _, _ = <-s.liveness:
+	case <-s.liveness:
 		return false
 	}
 }
@@ -670,7 +671,7 @@ func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error
 
 	sentControl := s.sendControl(removeService{serviceID(id.id & 0xffffffff), notificationC})
 
-	if sentControl == false {
+	if !sentControl {
 		return ErrTimeout
 	}
 
@@ -682,7 +683,7 @@ func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error
 	// This occurs if the entire supervisor ends without the service
 	// having terminated, and includes the timeout the supervisor
 	// itself waited before closing the liveness channel.
-	case _, _ = <-s.liveness:
+	case <-s.liveness:
 		return ErrTimeout
 
 	// The local timeout.
