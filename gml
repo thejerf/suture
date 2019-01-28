@@ -33,15 +33,12 @@ if [ -e lintclean ]; then
     EXTRA_ARGS=$(cat lintclean)
 fi
 
-gometalinter \
+golangci-lint run \
     --exclude="composite literal uses unkeyed field" \
     -j 4 \
     -D gocyclo \
-    -D aligncheck \
-    -D gofmt \
-    -D goimports \
-    -D gotype \
-    -D structcheck \
-    -D varcheck \
+    -E gosimple \
+    -E staticcheck \
+    -E gofmt \
     $EXTRA_ARGS \
     $*

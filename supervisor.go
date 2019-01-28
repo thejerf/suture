@@ -408,6 +408,10 @@ func (s *Supervisor) ServeBackground() {
 /*
 Serve starts the supervisor. You should call this on the top-level supervisor,
 but nothing else.
+
+Serve will panic if it is called on an already-running supervisor, because
+the guarantees about how services are managed can not be maintained if a
+supervisor is double-served.
 */
 func (s *Supervisor) Serve() {
 	if s == nil {
@@ -417,20 +421,20 @@ func (s *Supervisor) Serve() {
 		panic("Can't call Serve on an incorrectly-constructed *suture.Supervisor")
 	}
 
+	s.Lock()
+	if s.state != notRunning {
+		s.Unlock()
+		panic("Called .Serve() on a supervisor that is already Serve()ing")
+	}
+
+	s.state = normal
+	s.Unlock()
+
 	defer func() {
 		s.Lock()
 		s.state = notRunning
 		s.Unlock()
 	}()
-
-	s.Lock()
-	if s.state != notRunning {
-		s.Unlock()
-		panic("Running a supervisor while it is already running?")
-	}
-
-	s.state = normal
-	s.Unlock()
 
 	// for all the services I currently know about, start them
 	for _, id := range s.restartQueue {
@@ -512,8 +516,21 @@ func (s *Supervisor) Serve() {
 // Stop stops the Supervisor.
 //
 // This function will not return until either all Services have stopped, or
-// they timeout after the timeout value given to the Supervisor at creation.
+// they timeout after the timeout value given to the Supervisor at
+// creation.
+//
+// This will panic if the Supervisor has not had Serve() called on it at
+// the time it is executed. This is because the supervisor can not maintain
+// its guarantees with regard to how it will shut down services if it is
+// called at this point.
 func (s *Supervisor) Stop() {
+	s.Lock()
+	if s.state == notRunning {
+		defer s.Unlock()
+		panic("Stop() called on not-currently-running supervisor")
+	}
+	s.Unlock()
+
 	done := make(chan struct{})
 	if s.sendControl(stopSupervisor{done}) {
 		<-done

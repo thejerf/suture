@@ -214,17 +214,7 @@ func TestRunningAlreadyRunning(t *testing.T) {
 
 	// ensure the supervisor has made it to its main loop
 	s.sync()
-	var errored bool
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				errored = true
-			}
-		}()
-
-		s.Serve()
-	}()
-	if !errored {
+	if !panics(s.Serve) {
 		t.Fatal("Supervisor failed to prevent itself from double-running.")
 	}
 }
@@ -392,7 +382,7 @@ func TestRemovingHungService(t *testing.T) {
 	<-service.started
 	service.take <- Hang
 
-	s.Remove(sToken)
+	_ = s.Remove(sToken)
 	resumeChan <- time.Time{}
 
 	<-failNotify
@@ -608,6 +598,15 @@ func TestRemoveAndWait(t *testing.T) {
 	err = s.RemoveAndWait(token, 0)
 	if err != nil {
 		t.Fatal("Unexpected result of RemoveAndWait: " + err.Error())
+	}
+}
+
+func TestStopSupervisorPanic(t *testing.T) {
+	t.Parallel()
+
+	s := NewSimple("test stop panic supervisor")
+	if !panics(s.Stop) {
+		t.Fatal("Did not get expected panic when stopping un-serve'd supervisor")
 	}
 }
 

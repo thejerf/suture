@@ -48,6 +48,13 @@ Changelog
 
 suture uses semantic versioning.
 
+* 3.0.1:
+  * Calling ".Stop()" on an unstarted supervisor now panics. This is
+    superior to its previous behavior, which is hanging forever.
+    This is justified by the fact that the Supervisor can't provide its
+    guarantees about how services are started and stopped if it is not
+    itself started and stopped correctly. Further pushing me in this
+    direction is that it's fairly easy to use the Supervisor correctly.
 * 3.0:
   * Added a default jitter of up to 50% on the restart intervals. While
     this is a backwards-compatible change from a source perspective, this
