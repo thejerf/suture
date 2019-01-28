@@ -605,9 +605,25 @@ func TestStopSupervisorPanic(t *testing.T) {
 	t.Parallel()
 
 	s := NewSimple("test stop panic supervisor")
-	if !panics(s.Stop) {
-		t.Fatal("Did not get expected panic when stopping un-serve'd supervisor")
+	s.Stop()
+	if s.state != terminated {
+		t.Fatal("stopping server didn't go to the terminated state")
 	}
+	// this should return because it should come back having done nothing
+	s.Serve()
+}
+
+func TestSupervisorManagementIssue35(t *testing.T) {
+	s := NewSimple("issue 35")
+
+	for i := 1; i < 100; i++ {
+		s2 := NewSimple("test")
+		s.Add(s2)
+	}
+
+	s.ServeBackground()
+	// should not have any panics
+	s.Stop()
 }
 
 func TestCoverage(t *testing.T) {

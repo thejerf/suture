@@ -48,6 +48,11 @@ Changelog
 
 suture uses semantic versioning.
 
+* 3.0.2:
+  * Fixed issue #35 caused by the 3.0.1 change to panic when calling .Stop
+    on an unServe()d supervisor. It needs to correctly notice that .Stop
+    has been called, and not start up instead, which is the contract of the
+    Service interface.
 * 3.0.1:
   * Fixed issue #34: Calling supervisor.Stop() while something is trying
     to shut down a service could incorrectly report the  service failed to
