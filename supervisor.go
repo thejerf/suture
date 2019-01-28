@@ -400,8 +400,8 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	return ServiceToken{uint64(s.id)<<32 | uint64(<-response)}
 }
 
-// ServeBackground starts running a supervisor in its own goroutine. This
-// method does not return until it is safe to use .Add() on the Supervisor.
+// ServeBackground starts running a supervisor in its own goroutine. When
+// this method returns, the supervisor is guaranteed to be in a running state.
 func (s *Supervisor) ServeBackground() {
 	go s.Serve()
 	s.sync()
