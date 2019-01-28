@@ -628,10 +628,45 @@ func TestCoverage(t *testing.T) {
 	})
 }
 
+func TestStopAfterRemoveAndWait(t *testing.T) {
+	t.Parallel()
+
+	var badStopError error
+
+	s := NewSimple("main")
+	s.timeout = time.Second
+	s.LogBadStop = func(sup *Supervisor, _ Service, name string) {
+		badStopError = fmt.Errorf("%s: Service %s failed to terminate in a timely manner", sup.Name, name)
+	}
+	s.ServeBackground()
+
+	service := NewService("A1")
+	token := s.Add(service)
+
+	<-service.started
+	service.take <- UseStopChan
+
+	err := s.RemoveAndWait(token, time.Second)
+	if err != nil {
+		t.Fatal("Happy case for RemoveAndWait failed: " + err.Error())
+	}
+	<-service.stop
+
+	s.Stop()
+
+	if badStopError != nil {
+		t.Fatal("Unexpected timeout while stopping supervisor: " + badStopError.Error())
+	}
+}
+
 // http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
 // claims test function are run in the same order as the source file...
 // I'm not sure if this is part of the contract, though. Especially in the
 // face of "t.Parallel()"...
+//
+// This is also why all the tests must go in this file; this test needs to
+// run last, and the only way I know to even hopefully guarantee that is to
+// have them all in one file.
 func TestEverMultistarted(t *testing.T) {
 	if everMultistarted {
 		t.Fatal("Seem to have multistarted a service at some point, bummer.")

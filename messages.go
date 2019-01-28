@@ -71,12 +71,6 @@ func (s *Supervisor) panic() {
 	s.control <- panicSupervisor{}
 }
 
-type serviceTerminated struct {
-	id serviceID
-}
-
-func (st serviceTerminated) isSupervisorMessage() {}
-
 type panicSupervisor struct {
 }
 

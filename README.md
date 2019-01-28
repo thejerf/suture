@@ -49,6 +49,9 @@ Changelog
 suture uses semantic versioning.
 
 * 3.0.1:
+  * Fixed issue #34: Calling supervisor.Stop() while something is trying
+    to shut down a service could incorrectly report the  service failed to
+    shut down.
   * Calling ".Stop()" on an unstarted supervisor now panics. This is
     superior to its previous behavior, which is hanging forever.
     This is justified by the fact that the Supervisor can't provide its

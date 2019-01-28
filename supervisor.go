@@ -138,6 +138,7 @@ type Supervisor struct {
 	serviceCounter       serviceID
 	control              chan supervisorMessage
 	liveness             chan struct{}
+	notifyServiceDone    chan serviceID
 	resumeTimer          <-chan time.Time
 
 	LogBadStop BadStopLogger
@@ -268,6 +269,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 
 	s.control = make(chan supervisorMessage)
 	s.liveness = make(chan struct{})
+	s.notifyServiceDone = make(chan serviceID)
 	s.services = make(map[serviceID]serviceWithName)
 	s.servicesShuttingDown = make(map[serviceID]serviceWithName)
 	s.restartQueue = make([]serviceID, 0, 1)
@@ -472,9 +474,7 @@ func (s *Supervisor) Serve() {
 
 				msg.response <- id
 			case removeService:
-				s.removeService(msg.id, msg.notification, s.control)
-			case serviceTerminated:
-				delete(s.servicesShuttingDown, msg.id)
+				s.removeService(msg.id, msg.notification)
 			case stopSupervisor:
 				s.stopSupervisor()
 				msg.done <- struct{}{}
@@ -492,6 +492,8 @@ func (s *Supervisor) Serve() {
 				// used only by tests
 				panic("Panicking as requested!")
 			}
+		case serviceEnded := <-s.notifyServiceDone:
+			delete(s.servicesShuttingDown, serviceEnded)
 		case <-s.resumeTimer:
 			// We're resuming normal operation after a pause due to
 			// excessive thrashing
@@ -606,10 +608,11 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 	}()
 }
 
-func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{}, removedChan chan supervisorMessage) {
+func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{}) {
 	namedService, present := s.services[id]
 	if present {
 		delete(s.services, id)
+
 		s.servicesShuttingDown[id] = namedService
 		go func() {
 			successChan := make(chan struct{})
@@ -627,7 +630,7 @@ func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{},
 			case <-s.getAfterChan(s.timeout):
 				s.LogBadStop(s, namedService.Service, namedService.name)
 			}
-			removedChan <- serviceTerminated{id}
+			s.notifyServiceDone <- id
 		}()
 	} else {
 		if notificationChan != nil {
@@ -637,7 +640,7 @@ func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{},
 }
 
 func (s *Supervisor) stopSupervisor() {
-	notifyDone := make(chan serviceID)
+	notifyDone := make(chan serviceID, len(s.services))
 
 	for id := range s.services {
 		namedService, present := s.services[id]
@@ -657,6 +660,8 @@ SHUTTING_DOWN_SERVICES:
 		select {
 		case id := <-notifyDone:
 			delete(s.servicesShuttingDown, id)
+		case serviceID := <-s.notifyServiceDone:
+			delete(s.servicesShuttingDown, serviceID)
 		case <-timeout:
 			for _, namedService := range s.servicesShuttingDown {
 				s.LogBadStop(s, namedService.Service, namedService.name)
