@@ -418,6 +418,33 @@ func TestRemoveService(t *testing.T) {
 	}
 }
 
+func TestServiceReport(t *testing.T) {
+	t.Parallel()
+
+	s := NewSimple("Top")
+	s.timeout = time.Millisecond
+	service := NewService("ServiceName")
+
+	id := s.Add(service)
+	go s.Serve()
+
+	<-service.started
+	service.take <- Hang
+
+	report := s.StopWithReport()
+	if !reflect.DeepEqual(report, UnstoppedServiceReport{
+		{service, "ServiceName", id},
+	}) {
+		t.Fatal("did not get expected stop service report")
+	}
+
+	// coverage testing; StopWithReport on a stopped supervisor returns a
+	// nil.
+	if s.StopWithReport() != nil {
+		t.Fatal("calling StopWithReport on a stopped supervisor doesn't work")
+	}
+}
+
 func TestFailureToConstruct(t *testing.T) {
 	t.Parallel()
 

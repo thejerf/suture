@@ -62,7 +62,7 @@ type addService struct {
 func (as addService) isSupervisorMessage() {}
 
 type stopSupervisor struct {
-	done chan struct{}
+	done chan UnstoppedServiceReport
 }
 
 func (ss stopSupervisor) isSupervisorMessage() {}

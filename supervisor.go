@@ -58,6 +58,16 @@ type ServiceToken struct {
 	id uint64
 }
 
+type UnstoppedService struct {
+	Service      Service
+	Name         string
+	ServiceToken ServiceToken
+}
+
+// An UnstoppedServiceReport will be returned by StopWithReport, reporting
+// which services failed to stop.
+type UnstoppedServiceReport []UnstoppedService
+
 type serviceWithName struct {
 	Service Service
 	name    string
@@ -479,8 +489,7 @@ func (s *Supervisor) Serve() {
 			case removeService:
 				s.removeService(msg.id, msg.notification)
 			case stopSupervisor:
-				s.stopSupervisor()
-				msg.done <- struct{}{}
+				msg.done <- s.stopSupervisor()
 				return
 			case listServices:
 				services := []Service{}
@@ -518,25 +527,56 @@ func (s *Supervisor) Serve() {
 	}
 }
 
+// StopWithReport will stop the supervisor like calling Stop, but will also
+// return a struct reporting what services failed to stop. This fully
+// encompasses calling Stop, so do not call Stop and StopWithReport any
+// more than you should call Stop twice.
+//
+// WARNING: Technically, any use of the returned data structure is a
+// TOCTOU violation:
+// https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use
+// Since the data structure was generated and returned to you, any of these
+// services may have stopped since then.
+//
+// However, this can still be useful information at program teardown
+// time. For instance, logging that a service failed to stop as expected is
+// still useful, as even if it shuts down later, it was still later than
+// you expected.
+//
+// But if you cast the Service objects back to their underlying objects and
+// start trying to manipulate them ("shut down harder!"), be sure to
+// account for the possibility they are in fact shut down before you get
+// them.
+//
+// If there are no services to report, the UnstoppedServiceReport will be
+// nil. A zero-length constructed slice is never returned.
+//
+// Calling this on an already-stopped supervisor is invalid, but will
+// safely return nil anyhow.
+func (s *Supervisor) StopWithReport() UnstoppedServiceReport {
+	s.Lock()
+	if s.state == notRunning {
+		s.state = terminated
+		s.Unlock()
+		return nil
+	}
+	s.state = terminated
+	s.Unlock()
+
+	done := make(chan UnstoppedServiceReport)
+	if s.sendControl(stopSupervisor{done}) {
+		return <-done
+	}
+	return nil
+}
+
 // Stop stops the Supervisor.
 //
 // This function will not return until either all Services have stopped, or
 // they timeout after the timeout value given to the Supervisor at
 // creation.
 func (s *Supervisor) Stop() {
-	s.Lock()
-	if s.state == notRunning {
-		s.state = terminated
-		s.Unlock()
-		return
-	}
-	s.state = terminated
-	s.Unlock()
-
-	done := make(chan struct{})
-	if s.sendControl(stopSupervisor{done}) {
-		<-done
-	}
+	s.StopWithReport()
 }
 
 func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktrace []byte) {
@@ -639,7 +679,7 @@ func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{})
 	}
 }
 
-func (s *Supervisor) stopSupervisor() {
+func (s *Supervisor) stopSupervisor() UnstoppedServiceReport {
 	notifyDone := make(chan serviceID, len(s.services))
 
 	for id := range s.services {
@@ -673,6 +713,20 @@ SHUTTING_DOWN_SERVICES:
 	}
 
 	close(s.liveness)
+
+	if len(s.servicesShuttingDown) == 0 {
+		return nil
+	} else {
+		report := UnstoppedServiceReport{}
+		for serviceID, serviceWithName := range s.servicesShuttingDown {
+			report = append(report, UnstoppedService{
+				Service:      serviceWithName.Service,
+				Name:         serviceWithName.name,
+				ServiceToken: ServiceToken{uint64(s.id)<<32 | uint64(serviceID)},
+			})
+		}
+		return report
+	}
 }
 
 // String implements the fmt.Stringer interface.
@@ -680,6 +734,11 @@ func (s *Supervisor) String() string {
 	return s.Name
 }
 
+// sendControl abstracts checking for the supervisor to still be running
+// when we send a message. This way, if someone does call Stop twice on a
+// supervisor or call stop in one goroutine while calling Stop in another,
+// the goroutines trying to call methods on a stopped supervisor won't hang
+// forever and leak.
 func (s *Supervisor) sendControl(sm supervisorMessage) bool {
 	select {
 	case s.control <- sm:
