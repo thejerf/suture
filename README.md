@@ -49,6 +49,13 @@ Changelog
 
 suture uses semantic versioning.
 
+* 3.0.3:
+  * Implemented request in Issue #37, creating a new method StopWithReport
+    on supervisors that reports what services failed to stop. While a bit
+    tricky to use, see warning
+    about
+    [TOCTOU](https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use)
+    issues in the godoc, it can be useful at program tear-down time.
 * 3.0.2:
   * Fixed issue #35 caused by the 3.0.1 change to panic when calling .Stop
     on an unServe()d supervisor. It needs to correctly notice that .Stop
