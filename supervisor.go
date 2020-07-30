@@ -1,6 +1,7 @@
 package suture
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -142,6 +143,7 @@ type Supervisor struct {
 	timeout              time.Duration
 	log                  func(string)
 	services             map[serviceID]serviceWithName
+	cancellations        map[serviceID]context.CancelFunc
 	servicesShuttingDown map[serviceID]serviceWithName
 	lastFail             time.Time
 	failures             float64
@@ -282,6 +284,7 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.liveness = make(chan struct{})
 	s.notifyServiceDone = make(chan serviceID)
 	s.services = make(map[serviceID]serviceWithName)
+	s.cancellations = make(map[serviceID]context.CancelFunc)
 	s.servicesShuttingDown = make(map[serviceID]serviceWithName)
 	s.restartQueue = make([]serviceID, 0, 1)
 	s.resumeTimer = make(chan time.Time)
@@ -414,7 +417,7 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 // ServeBackground starts running a supervisor in its own goroutine. When
 // this method returns, the supervisor is guaranteed to be in a running state.
 func (s *Supervisor) ServeBackground() {
-	go s.Serve()
+	go s.Serve(context.Background())
 	s.sync()
 }
 
@@ -422,7 +425,7 @@ func (s *Supervisor) ServeBackground() {
 Serve starts the supervisor. You should call this on the top-level supervisor,
 but nothing else.
 */
-func (s *Supervisor) Serve() {
+func (s *Supervisor) Serve(ctx context.Context) error {
 	if s == nil {
 		panic("Can't serve with a nil *suture.Supervisor")
 	}
@@ -434,7 +437,7 @@ func (s *Supervisor) Serve() {
 	if s.state == terminated {
 		// Got stopped before we got started.
 		s.Unlock()
-		return
+		return nil
 	}
 
 	if s.state != notRunning {
@@ -455,27 +458,35 @@ func (s *Supervisor) Serve() {
 	for _, id := range s.restartQueue {
 		namedService, present := s.services[id]
 		if present {
-			s.runService(namedService.Service, id)
+			s.runService(ctx, namedService.Service, id)
 		}
 	}
 	s.restartQueue = make([]serviceID, 0, 1)
 
 	for {
 		select {
+		case <-ctx.Done():
+			s.stopSupervisor()
+			return ctx.Err()
 		case m := <-s.control:
 			switch msg := m.(type) {
 			case serviceFailed:
-				s.handleFailedService(msg.id, msg.err, msg.stacktrace)
+				s.handleFailedService(ctx, msg.id, msg.err, msg.stacktrace)
 			case serviceEnded:
 				service, monitored := s.services[msg.id]
 				if monitored {
-					if msg.complete {
+					cancel := s.cancellations[msg.id]
+					if errors.Is(msg.err, ErrComplete) {
 						delete(s.services, msg.id)
+						delete(s.cancellations, msg.id)
 						go func() {
-							service.Service.Stop()
+							cancel()
 						}()
+					} else if errors.Is(msg.err, ErrTearDown) {
+						s.stopSupervisor()
+						return msg.err
 					} else {
-						s.handleFailedService(msg.id, fmt.Sprintf("%s returned unexpectedly", service), []byte("[unknown stack trace]"))
+						s.handleFailedService(ctx, msg.id, fmt.Sprintf("%s returned unexpectedly", service), []byte("[unknown stack trace]"))
 					}
 				}
 			case addService:
@@ -483,14 +494,14 @@ func (s *Supervisor) Serve() {
 				s.serviceCounter++
 
 				s.services[id] = serviceWithName{msg.service, msg.name}
-				s.runService(msg.service, id)
+				s.runService(ctx, msg.service, id)
 
 				msg.response <- id
 			case removeService:
 				s.removeService(msg.id, msg.notification)
 			case stopSupervisor:
 				msg.done <- s.stopSupervisor()
-				return
+				return nil
 			case listServices:
 				services := []Service{}
 				for _, service := range s.services {
@@ -519,7 +530,7 @@ func (s *Supervisor) Serve() {
 			for _, id := range s.restartQueue {
 				namedService, present := s.services[id]
 				if present {
-					s.runService(namedService.Service, id)
+					s.runService(ctx, namedService.Service, id)
 				}
 			}
 			s.restartQueue = make([]serviceID, 0, 1)
@@ -579,7 +590,7 @@ func (s *Supervisor) Stop() {
 	s.StopWithReport()
 }
 
-func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktrace []byte) {
+func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err interface{}, stacktrace []byte) {
 	now := s.getNow()
 
 	if s.lastFail.IsZero() {
@@ -613,7 +624,7 @@ func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktra
 		curState := s.state
 		s.Unlock()
 		if curState == normal {
-			s.runService(failedService.Service, id)
+			s.runService(ctx, failedService.Service, id)
 			s.LogFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, true, err, stacktrace)
 		} else {
 			// FIXME: When restarting, check that the service still
@@ -624,7 +635,14 @@ func (s *Supervisor) handleFailedService(id serviceID, err interface{}, stacktra
 	}
 }
 
-func (s *Supervisor) runService(service Service, id serviceID) {
+func (s *Supervisor) runService(ctx context.Context, service Service, id serviceID) {
+	childCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	blockingCancellation := func() {
+		cancel()
+		<-done
+	}
+	s.cancellations[id] = blockingCancellation
 	go func() {
 		if s.recoverPanics {
 			defer func() {
@@ -637,27 +655,26 @@ func (s *Supervisor) runService(service Service, id serviceID) {
 			}()
 		}
 
-		service.Serve()
+		err := service.Serve(childCtx)
+		cancel()
+		close(done)
 
-		complete := false
-		if completable, ok := service.(IsCompletable); ok && completable.Complete() {
-			complete = true
-		}
-
-		s.serviceEnded(id, complete)
+		s.serviceEnded(id, err)
 	}()
 }
 
 func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{}) {
 	namedService, present := s.services[id]
 	if present {
+		cancel := s.cancellations[id]
 		delete(s.services, id)
+		delete(s.cancellations, id)
 
 		s.servicesShuttingDown[id] = namedService
 		go func() {
 			successChan := make(chan struct{})
 			go func() {
-				namedService.Service.Stop()
+				cancel()
 				close(successChan)
 				if notificationChan != nil {
 					notificationChan <- struct{}{}
@@ -685,10 +702,12 @@ func (s *Supervisor) stopSupervisor() UnstoppedServiceReport {
 	for id := range s.services {
 		namedService, present := s.services[id]
 		if present {
+			cancel := s.cancellations[id]
 			delete(s.services, id)
+			delete(s.cancellations, id)
 			s.servicesShuttingDown[id] = namedService
 			go func(sID serviceID) {
-				namedService.Service.Stop()
+				cancel()
 				notifyDone <- sID
 			}(id)
 		}

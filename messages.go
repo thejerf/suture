@@ -41,13 +41,13 @@ type serviceFailed struct {
 
 func (sf serviceFailed) isSupervisorMessage() {}
 
-func (s *Supervisor) serviceEnded(id serviceID, complete bool) {
-	s.sendControl(serviceEnded{id, complete})
+func (s *Supervisor) serviceEnded(id serviceID, err error) {
+	s.sendControl(serviceEnded{id, err})
 }
 
 type serviceEnded struct {
-	id       serviceID
-	complete bool
+	id  serviceID
+	err error
 }
 
 func (s serviceEnded) isSupervisorMessage() {}

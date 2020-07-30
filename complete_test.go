@@ -1,6 +1,7 @@
 package suture
 
 import (
+	"context"
 	"fmt"
 	"testing"
 )
@@ -15,32 +16,23 @@ type IncrementorJob struct {
 	stop    chan bool
 }
 
-func (i *IncrementorJob) Stop() {
-	fmt.Println("Stopping the service")
-	i.stop <- true
-}
-
-func (i *IncrementorJob) Serve() {
+func (i *IncrementorJob) Serve(ctx context.Context) error {
 	for {
 		select {
 		case i.next <- i.current + 1:
 			i.current++
 			if i.current >= JobLimit {
-				return
+				return ErrComplete
 			}
-		case <-i.stop:
+		case <-ctx.Done():
+			fmt.Println("Stopping the service")
 			// We sync here just to guarantee the output of "Stopping the service",
 			// so this passes the test reliably.
 			// Most services would simply "return" here.
 			i.stop <- true
-			return
+			return ctx.Err()
 		}
 	}
-}
-
-func (i *IncrementorJob) Complete() bool {
-	// fmt.Println("IncrementorJob exited as Complete()")
-	return i.current >= JobLimit
 }
 
 func TestCompleteJob(t *testing.T) {
