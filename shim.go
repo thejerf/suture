@@ -9,7 +9,8 @@ type DeprecatedService interface {
 	Stop()
 }
 
-func AsNewService(service DeprecatedService) Service {
+// AsService converts old-style suture service to a new style suture service.
+func AsService(service DeprecatedService) Service {
 	return &serviceShim{service: service}
 }
 
@@ -24,12 +25,16 @@ func (s *serviceShim) Serve(ctx context.Context) error {
 		close(done)
 	}()
 
-	for {
-		select {
-		case <-ctx.Done():
-			s.service.Stop()
-		case <-done:
-			return ctx.Err()
-		}
+	select {
+	case <-done:
+		// If the service stops by itself (done closes), return straight away, there is no error, and we don't need
+		// to wait for the context.
+		return nil
+	case <-ctx.Done():
+		// If the context is closed, stop the service, then wait for it's termination and return the error from the
+		// context.
+		s.service.Stop()
+		<-done
+		return ctx.Err()
 	}
 }

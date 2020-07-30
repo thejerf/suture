@@ -31,7 +31,7 @@ func (i *Incrementor) Serve() {
 func ExampleNew_simple() {
 	supervisor := NewSimple("Supervisor")
 	service := &Incrementor{0, make(chan int), make(chan bool)}
-	supervisor.Add(AsNewService(service))
+	supervisor.Add(AsService(service))
 
 	supervisor.ServeBackground()
 
