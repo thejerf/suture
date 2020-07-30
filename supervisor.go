@@ -482,7 +482,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 						go func() {
 							cancel()
 						}()
-					} else if errors.Is(msg.err, ErrTearDown) {
+					} else if errors.Is(msg.err, ErrAbort) {
 						s.stopSupervisor()
 						return msg.err
 					} else {

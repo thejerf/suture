@@ -6,5 +6,5 @@ import (
 
 var (
 	ErrComplete = errors.New("complete")
-	ErrTearDown = errors.New("tear down")
+	ErrAbort    = errors.New("abort")
 )
