@@ -724,14 +724,13 @@ func TestEverMultistarted(t *testing.T) {
 // A test service that can be induced to fail, panic, or hang on demand.
 func NewService(name string) *FailableService {
 	return &FailableService{name, make(chan bool), make(chan int),
-		make(chan bool), make(chan bool), make(chan bool), 0}
+		make(chan bool), make(chan bool), 0}
 }
 
 type FailableService struct {
 	name     string
 	started  chan bool
 	take     chan int
-	shutdown chan bool
 	release  chan bool
 	stop     chan bool
 	existing int
