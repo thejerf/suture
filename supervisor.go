@@ -313,25 +313,30 @@ func New(name string, spec Spec) (s *Supervisor) {
 			err interface{},
 			st []byte,
 		) {
-			var errString string
-
-			e, canError := err.(error)
-			if canError {
-				errString = e.Error()
-			} else {
-				errString = fmt.Sprintf("%#v", err)
+			errString := "service returned unexpectedly"
+			if err != nil {
+				e, canError := err.(error)
+				if canError {
+					errString = e.Error()
+				} else {
+					errString = fmt.Sprintf("%#v", err)
+				}
 			}
 
-			s.log(fmt.Sprintf(
-				"%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s, stacktrace: %s",
+			msg := fmt.Sprintf(
+				"%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s",
 				sup.Name,
 				svcName,
 				f,
 				thresh,
 				restarting,
 				errString,
-				string(st),
-			))
+			)
+			if len(st) > 0 {
+				msg += fmt.Sprintf(", stacktrace: %s", string(st))
+			}
+
+			s.log(msg)
 		}
 	} else {
 		s.LogFailure = spec.LogFailure
@@ -486,7 +491,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 						s.stopSupervisor()
 						return msg.err
 					} else {
-						s.handleFailedService(ctx, msg.id, fmt.Sprintf("%s returned unexpectedly", service), []byte("[unknown stack trace]"))
+						s.handleFailedService(ctx, msg.id, msg.err, nil)
 					}
 				}
 			case addService:
