@@ -32,18 +32,12 @@ func TestTheHappyCase(t *testing.T) {
 
 	s.Add(service)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		s.Serve(ctx)
-		close(done)
-	}()
+	go s.Serve(context.Background())
 
 	<-service.started
 
 	// If we stop the service, it just gets restarted
-	cancel()
-	<-done
+	service.take <- Fail
 	<-service.started
 
 	// And it is shut down when we stop the supervisor
@@ -297,7 +291,7 @@ func TestNestedSupervisors(t *testing.T) {
 	// get copied
 	super2.LogBadStop(super2, service, "Service5")
 
-	super1.Serve(context.Background())
+	go super1.Serve(context.Background())
 	super1.sync()
 
 	<-service.started
@@ -724,7 +718,7 @@ func TestEverMultistarted(t *testing.T) {
 // A test service that can be induced to fail, panic, or hang on demand.
 func NewService(name string) *FailableService {
 	return &FailableService{name, make(chan bool), make(chan int),
-		make(chan bool), make(chan bool), 0}
+		make(chan bool), make(chan bool, 1), 0}
 }
 
 type FailableService struct {
