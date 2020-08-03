@@ -1,5 +1,10 @@
 package suture
 
+// FIXMES in progress:
+// 1. Ensure the supervisor actually gets to the terminated state for the
+//     unstopped service report.
+// 2. Save the unstopped service report in the supervisor.
+
 import (
 	"context"
 	"errors"
@@ -38,7 +43,8 @@ type (
 		stacktrace []byte,
 	)
 
-	// BackoffLogger is called when the supervisor enters or exits backoff mode
+	// BackoffLogger is called when the supervisor enters or exits
+	// backoff mode
 	BackoffLogger func(s *Supervisor, entering bool)
 )
 
@@ -59,6 +65,10 @@ var ErrWrongSupervisor = errors.New("wrong supervisor for this service token, no
 // ErrTimeout is returned when an attempt to RemoveAndWait for a service to
 // stop has timed out.
 var ErrTimeout = errors.New("waiting for service to stop has timed out")
+
+// ErrSupervisorNotTerminated is returned when asking for a stopped service
+// report before the supervisor has been terminated.
+var ErrSupervisorNotTerminated = errors.New("supervisor not terminated")
 
 // ServiceToken is an opaque identifier that can be used to terminate a service that
 // has been Add()ed to a Supervisor.
@@ -122,22 +132,18 @@ Once constructed, a Supervisor should be started in one of three ways:
  2. Calling .ServeBackground(ctx).
  3. Adding it to an existing Supervisor.
 
-Calling Serve will cause the supervisor to run until it is shut down by
-an external user calling Stop() on it. If that never happens, it simply
-runs forever. I suggest creating your services in Supervisors, then making
-a Serve() call on your top-level Supervisor be the last line of your main
-func.
+Calling Serve will cause the supervisor to run until the passed-in
+context is cancelled, or one of the Stop methods is called on it. Often
+one of the last lines of the "main" func for a program will be to
+call one of the Serve methods.
 
 Calling ServeBackground will CORRECTLY start the supervisor running in a
-new goroutine. You do not want to just:
+new goroutine. It is risky to directly run
 
   go supervisor.Serve()
 
 because that will briefly create a race condition as it starts up, if you
 try to .Add() services immediately afterward.
-
-The various Log function should only be modified while the Supervisor is
-not running, to prevent race conditions.
 
 */
 type Supervisor struct {
@@ -153,10 +159,13 @@ type Supervisor struct {
 	restartQueue         []serviceID
 	serviceCounter       serviceID
 	control              chan supervisorMessage
-	liveness             chan struct{}
 	notifyServiceDone    chan serviceID
 	resumeTimer          <-chan time.Time
 
+	// despite the recommendation in the context package to avoid
+	// holding this in a struct, I think due to the function of suture
+	// and the way it works, there is no other option.
+	ctx context.Context
 	// This function cancels this supervisor specifically.
 	myCancel func()
 
@@ -166,6 +175,10 @@ type Supervisor struct {
 	getAfterChan func(time.Duration) <-chan time.Time
 
 	m sync.Mutex
+
+	// The unstopped service report is generated when we finish
+	// stopping.
+	unstoppedServiceReport UnstoppedServiceReport
 
 	// malign leftovers
 	id    supervisorID
@@ -340,13 +353,13 @@ func New(name string, spec Spec) *Supervisor {
 		0,
 		// control
 		make(chan supervisorMessage),
-		// liveness FIXME still needed with context?
-		make(chan struct{}),
 		// notifyServiceDone
 		make(chan serviceID),
 		// resumeTimer
 		make(chan time.Time),
 
+		// ctx,
+		nil,
 		// myCancel,
 		nil,
 
@@ -449,6 +462,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 
 	ctx, myCancel := context.WithCancel(ctx)
 	s.myCancel = myCancel
+	s.ctx = ctx
 
 	if s == nil {
 		panic("Can't serve with a nil *suture.Supervisor")
@@ -562,10 +576,10 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 	}
 }
 
-// StopWithReport will stop the supervisor like calling Stop, but will also
-// return a struct reporting what services failed to stop. This fully
-// encompasses calling Stop, so do not call Stop and StopWithReport any
-// more than you should call Stop twice.
+// UnstoppedServiceReport will return a report of what services failed to
+// stop when the supervisor was stopped. This is only valid to call when a
+// supervisor has been shut down; prior to that, you will get an
+// error. This is the only possible error.
 //
 // WARNING: Technically, any use of the returned data structure is a
 // TOCTOU violation:
@@ -588,21 +602,16 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 //
 // Calling this on an already-stopped supervisor is invalid, but will
 // safely return nil anyhow.
-func (s *Supervisor) StopWithReport() UnstoppedServiceReport {
+func (s *Supervisor) UnstoppedServiceReport() (UnstoppedServiceReport, error) {
 	s.m.Lock()
-	if s.state == notRunning {
-		s.state = terminated
-		s.m.Unlock()
-		return nil
-	}
-	s.state = terminated
+	state := s.state
 	s.m.Unlock()
 
-	done := make(chan UnstoppedServiceReport)
-	if s.sendControl(stopSupervisor{done}) {
-		return <-done
+	if state != terminated {
+		return nil, ErrSupervisorNotTerminated
 	}
-	return nil
+
+	return s.unstoppedServiceReport, nil
 }
 
 // Stop stops the Supervisor.
@@ -782,7 +791,8 @@ SHUTTING_DOWN_SERVICES:
 		}
 	}
 
-	close(s.liveness)
+	// If nothing else has cancelled our context, we should now.
+	s.myCancel()
 
 	if len(s.servicesShuttingDown) == 0 {
 		return nil
@@ -813,7 +823,7 @@ func (s *Supervisor) sendControl(sm supervisorMessage) bool {
 	select {
 	case s.control <- sm:
 		return true
-	case <-s.liveness:
+	case <-s.ctx.Done():
 		return false
 	}
 }
@@ -873,7 +883,7 @@ func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error
 	// This occurs if the entire supervisor ends without the service
 	// having terminated, and includes the timeout the supervisor
 	// itself waited before closing the liveness channel.
-	case <-s.liveness:
+	case <-s.ctx.Done():
 		return ErrTimeout
 
 	// The local timeout.
