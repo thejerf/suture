@@ -136,12 +136,8 @@ not running, to prevent race conditions.
 type Supervisor struct {
 	Name string
 
-	failureDecay         float64
-	failureThreshold     float64
-	failureBackoff       time.Duration
-	backoffJitter        Jitter
-	timeout              time.Duration
-	log                  func(string)
+	spec Spec
+
 	services             map[serviceID]serviceWithName
 	cancellations        map[serviceID]context.CancelFunc
 	servicesShuttingDown map[serviceID]serviceWithName
@@ -154,10 +150,6 @@ type Supervisor struct {
 	notifyServiceDone    chan serviceID
 	resumeTimer          <-chan time.Time
 
-	LogBadStop BadStopLogger
-	LogFailure FailureLogger
-	LogBackoff BackoffLogger
-
 	// This function cancels this supervisor specifically.
 	myCancel func()
 
@@ -169,9 +161,8 @@ type Supervisor struct {
 	sync.Mutex
 
 	// malign leftovers
-	id            supervisorID
-	state         uint8
-	recoverPanics bool
+	id    supervisorID
+	state uint8
 }
 
 // Spec is used to pass arguments to the New function to create a
@@ -187,6 +178,89 @@ type Spec struct {
 	LogFailure        FailureLogger
 	LogBackoff        BackoffLogger
 	PassThroughPanics bool
+}
+
+func (s *Spec) configureDefaults(supervisorName string) {
+	if s.FailureDecay == 0 {
+		s.FailureDecay = 30
+	}
+	if s.FailureThreshold == 0 {
+		s.FailureThreshold = 5
+	}
+	if s.FailureBackoff == 0 {
+		s.FailureBackoff = time.Second * 15
+	}
+	if s.BackoffJitter == nil {
+		s.BackoffJitter = &DefaultJitter{}
+	}
+	if s.Timeout == 0 {
+		s.Timeout = time.Second * 10
+	}
+
+	// set up the default logging handlers
+	if s.Log == nil {
+		s.Log = func(msg string) {
+			log.Print(fmt.Sprintf("Supervisor %s: %s", supervisorName, msg))
+		}
+	}
+
+	if s.LogBadStop == nil {
+		s.LogBadStop = func(sup *Supervisor, _ Service, name string) {
+			s.Log(fmt.Sprintf(
+				"%s: Service %s failed to terminate in a timely manner",
+				sup.Name,
+				name,
+			))
+		}
+	}
+
+	if s.LogFailure == nil {
+		s.LogFailure = func(
+			sup *Supervisor,
+			_ Service,
+			svcName string,
+			f float64,
+			thresh float64,
+			restarting bool,
+			err interface{},
+			st []byte,
+		) {
+			errString := "service returned unexpectedly"
+			if err != nil {
+				e, canError := err.(error)
+				if canError {
+					errString = e.Error()
+				} else {
+					errString = fmt.Sprintf("%#v", err)
+				}
+			}
+
+			msg := fmt.Sprintf(
+				"%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s",
+				sup.Name,
+				svcName,
+				f,
+				thresh,
+				restarting,
+				errString,
+			)
+			if len(st) > 0 {
+				msg += fmt.Sprintf(", stacktrace: %s", string(st))
+			}
+
+			s.Log(msg)
+		}
+	}
+
+	if s.LogBackoff == nil {
+		s.LogBackoff = func(supervisor *Supervisor, entering bool) {
+			if entering {
+				s.Log(supervisorName + ": Entering the backoff state.")
+			} else {
+				s.Log(supervisorName + ": Exiting backoff state.")
+			}
+		}
+	}
 }
 
 /*
@@ -244,40 +318,8 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.id = supervisorID(currentSupervisorID)
 	currentSupervisorIDL.Unlock()
 
-	if spec.Log == nil {
-		s.log = func(msg string) {
-			log.Print(fmt.Sprintf("Supervisor %s: %s", s.Name, msg))
-		}
-	} else {
-		s.log = spec.Log
-	}
-
-	if spec.FailureDecay == 0 {
-		s.failureDecay = 30
-	} else {
-		s.failureDecay = spec.FailureDecay
-	}
-	if spec.FailureThreshold == 0 {
-		s.failureThreshold = 5
-	} else {
-		s.failureThreshold = spec.FailureThreshold
-	}
-	if spec.FailureBackoff == 0 {
-		s.failureBackoff = time.Second * 15
-	} else {
-		s.failureBackoff = spec.FailureBackoff
-	}
-	if spec.BackoffJitter == nil {
-		s.backoffJitter = &DefaultJitter{}
-	} else {
-		s.backoffJitter = spec.BackoffJitter
-	}
-	if spec.Timeout == 0 {
-		s.timeout = time.Second * 10
-	} else {
-		s.timeout = spec.Timeout
-	}
-	s.recoverPanics = !spec.PassThroughPanics
+	spec.configureDefaults(s.Name)
+	s.spec = spec
 
 	// overriding these allows for testing the threshold behavior
 	s.getNow = time.Now
@@ -291,71 +333,6 @@ func New(name string, spec Spec) (s *Supervisor) {
 	s.servicesShuttingDown = make(map[serviceID]serviceWithName)
 	s.restartQueue = make([]serviceID, 0, 1)
 	s.resumeTimer = make(chan time.Time)
-
-	// set up the default logging handlers
-	if spec.LogBadStop == nil {
-		s.LogBadStop = func(sup *Supervisor, _ Service, name string) {
-			s.log(fmt.Sprintf(
-				"%s: Service %s failed to terminate in a timely manner",
-				sup.Name,
-				name,
-			))
-		}
-	} else {
-		s.LogBadStop = spec.LogBadStop
-	}
-
-	if spec.LogFailure == nil {
-		s.LogFailure = func(
-			sup *Supervisor,
-			_ Service,
-			svcName string,
-			f float64,
-			thresh float64,
-			restarting bool,
-			err interface{},
-			st []byte,
-		) {
-			errString := "service returned unexpectedly"
-			if err != nil {
-				e, canError := err.(error)
-				if canError {
-					errString = e.Error()
-				} else {
-					errString = fmt.Sprintf("%#v", err)
-				}
-			}
-
-			msg := fmt.Sprintf(
-				"%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s",
-				sup.Name,
-				svcName,
-				f,
-				thresh,
-				restarting,
-				errString,
-			)
-			if len(st) > 0 {
-				msg += fmt.Sprintf(", stacktrace: %s", string(st))
-			}
-
-			s.log(msg)
-		}
-	} else {
-		s.LogFailure = spec.LogFailure
-	}
-
-	if spec.LogBackoff == nil {
-		s.LogBackoff = func(s *Supervisor, entering bool) {
-			if entering {
-				s.log("Entering the backoff state.")
-			} else {
-				s.log("Exiting backoff state.")
-			}
-		}
-	} else {
-		s.LogBackoff = spec.LogBackoff
-	}
 
 	return
 }
@@ -399,9 +376,9 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	}
 
 	if supervisor, isSupervisor := service.(*Supervisor); isSupervisor {
-		supervisor.LogBadStop = s.LogBadStop
-		supervisor.LogFailure = s.LogFailure
-		supervisor.LogBackoff = s.LogBackoff
+		supervisor.spec.LogBadStop = s.spec.LogBadStop
+		supervisor.spec.LogFailure = s.spec.LogFailure
+		supervisor.spec.LogBackoff = s.spec.LogBackoff
 	}
 
 	s.Lock()
@@ -490,7 +467,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 			case serviceFailed:
 				s.handleFailedService(ctx, msg.id, msg.err, msg.stacktrace)
 			case serviceEnded:
-				service, monitored := s.services[msg.id]
+				_, monitored := s.services[msg.id]
 				if monitored {
 					cancel := s.cancellations[msg.id]
 					if errors.Is(msg.err, ErrComplete) {
@@ -543,7 +520,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 			s.state = normal
 			s.Unlock()
 			s.failures = 0
-			s.LogBackoff(s, false)
+			s.spec.LogBackoff(s, false)
 			for _, id := range s.restartQueue {
 				namedService, present := s.services[id]
 				if present {
@@ -615,16 +592,17 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 		s.failures = 1.0
 	} else {
 		sinceLastFail := now.Sub(s.lastFail).Seconds()
-		intervals := sinceLastFail / s.failureDecay
+		intervals := sinceLastFail / s.spec.FailureDecay
 		s.failures = s.failures*math.Pow(.5, intervals) + 1
 	}
 
-	if s.failures > s.failureThreshold {
+	if s.failures > s.spec.FailureThreshold {
 		s.Lock()
 		s.state = paused
 		s.Unlock()
-		s.LogBackoff(s, true)
-		s.resumeTimer = s.getAfterChan(s.backoffJitter.Jitter(s.failureBackoff))
+		s.spec.LogBackoff(s, true)
+		s.resumeTimer = s.getAfterChan(
+			s.spec.BackoffJitter.Jitter(s.spec.FailureBackoff))
 	}
 
 	s.lastFail = now
@@ -642,12 +620,30 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 		s.Unlock()
 		if curState == normal {
 			s.runService(ctx, failedService.Service, id)
-			s.LogFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, true, err, stacktrace)
+			s.spec.LogFailure(
+				s,
+				failedService.Service,
+				failedService.name,
+				s.failures,
+				s.spec.FailureThreshold,
+				true,
+				err,
+				stacktrace,
+			)
 		} else {
 			// FIXME: When restarting, check that the service still
 			// exists (it may have been stopped in the meantime)
 			s.restartQueue = append(s.restartQueue, id)
-			s.LogFailure(s, failedService.Service, failedService.name, s.failures, s.failureThreshold, false, err, stacktrace)
+			s.spec.LogFailure(
+				s,
+				failedService.Service,
+				failedService.name,
+				s.failures,
+				s.spec.FailureThreshold,
+				false,
+				err,
+				stacktrace,
+			)
 		}
 	}
 }
@@ -661,7 +657,7 @@ func (s *Supervisor) runService(ctx context.Context, service Service, id service
 	}
 	s.cancellations[id] = blockingCancellation
 	go func() {
-		if s.recoverPanics {
+		if !s.spec.PassThroughPanics {
 			defer func() {
 				if r := recover(); r != nil {
 					buf := make([]byte, 65535)
@@ -701,8 +697,12 @@ func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{})
 			select {
 			case <-successChan:
 				// Life is good!
-			case <-s.getAfterChan(s.timeout):
-				s.LogBadStop(s, namedService.Service, namedService.name)
+			case <-s.getAfterChan(s.spec.Timeout):
+				s.spec.LogBadStop(
+					s,
+					namedService.Service,
+					namedService.name,
+				)
 			}
 			s.notifyServiceDone <- id
 		}()
@@ -730,7 +730,7 @@ func (s *Supervisor) stopSupervisor() UnstoppedServiceReport {
 		}
 	}
 
-	timeout := s.getAfterChan(s.timeout)
+	timeout := s.getAfterChan(s.spec.Timeout)
 SHUTTING_DOWN_SERVICES:
 	for len(s.servicesShuttingDown) > 0 {
 		select {
@@ -740,7 +740,11 @@ SHUTTING_DOWN_SERVICES:
 			delete(s.servicesShuttingDown, serviceID)
 		case <-timeout:
 			for _, namedService := range s.servicesShuttingDown {
-				s.LogBadStop(s, namedService.Service, namedService.name)
+				s.spec.LogBadStop(
+					s,
+					namedService.Service,
+					namedService.name,
+				)
 			}
 
 			// failed remove statements will log the errors.
