@@ -45,6 +45,13 @@ type (
 var currentSupervisorIDL sync.Mutex
 var currentSupervisorID uint32
 
+func nextSupervisorID() supervisorID {
+	currentSupervisorIDL.Lock()
+	defer currentSupervisorIDL.Unlock()
+	currentSupervisorID++
+	return supervisorID(currentSupervisorID)
+}
+
 // ErrWrongSupervisor is returned by the (*Supervisor).Remove method
 // if you pass a ServiceToken from the wrong Supervisor.
 var ErrWrongSupervisor = errors.New("wrong supervisor for this service token, no service removed")
@@ -158,7 +165,7 @@ type Supervisor struct {
 	getNow       func() time.Time
 	getAfterChan func(time.Duration) <-chan time.Time
 
-	sync.Mutex
+	m sync.Mutex
 
 	// malign leftovers
 	id    supervisorID
@@ -309,32 +316,55 @@ The PassThroughPanics options can be set to let panics in services propagate
 and crash the program, should this be desirable.
 
 */
-func New(name string, spec Spec) (s *Supervisor) {
-	s = new(Supervisor)
+func New(name string, spec Spec) *Supervisor {
+	spec.configureDefaults(name)
 
-	s.Name = name
-	currentSupervisorIDL.Lock()
-	currentSupervisorID++
-	s.id = supervisorID(currentSupervisorID)
-	currentSupervisorIDL.Unlock()
+	return &Supervisor{
+		name,
 
-	spec.configureDefaults(s.Name)
-	s.spec = spec
+		spec,
 
-	// overriding these allows for testing the threshold behavior
-	s.getNow = time.Now
-	s.getAfterChan = time.After
+		// services
+		make(map[serviceID]serviceWithName),
+		// cancellations
+		make(map[serviceID]context.CancelFunc),
+		// servicesShuttingDown
+		make(map[serviceID]serviceWithName),
+		// lastFail, deliberately the zero time
+		time.Time{},
+		// failures
+		0,
+		// restartQueue
+		make([]serviceID, 0, 1),
+		// serviceCounter
+		0,
+		// control
+		make(chan supervisorMessage),
+		// liveness FIXME still needed with context?
+		make(chan struct{}),
+		// notifyServiceDone
+		make(chan serviceID),
+		// resumeTimer
+		make(chan time.Time),
 
-	s.control = make(chan supervisorMessage)
-	s.liveness = make(chan struct{})
-	s.notifyServiceDone = make(chan serviceID)
-	s.services = make(map[serviceID]serviceWithName)
-	s.cancellations = make(map[serviceID]context.CancelFunc)
-	s.servicesShuttingDown = make(map[serviceID]serviceWithName)
-	s.restartQueue = make([]serviceID, 0, 1)
-	s.resumeTimer = make(chan time.Time)
+		// myCancel,
+		nil,
 
-	return
+		// the tests can override these for testing threshold
+		// behavior
+		// getNow
+		time.Now,
+		// getAfterChan
+		time.After,
+
+		// m
+		sync.Mutex{},
+
+		// id
+		nextSupervisorID(),
+		// state
+		notRunning,
+	}
 }
 
 func serviceName(service Service) (serviceName string) {
@@ -381,7 +411,7 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 		supervisor.spec.LogBackoff = s.spec.LogBackoff
 	}
 
-	s.Lock()
+	s.m.Lock()
 	if s.state == notRunning {
 		id := s.serviceCounter
 		s.serviceCounter++
@@ -389,10 +419,10 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 		s.services[id] = serviceWithName{service, serviceName(service)}
 		s.restartQueue = append(s.restartQueue, id)
 
-		s.Unlock()
+		s.m.Unlock()
 		return ServiceToken{uint64(s.id)<<32 | uint64(id)}
 	}
-	s.Unlock()
+	s.m.Unlock()
 
 	response := make(chan serviceID)
 	s.control <- addService{service, serviceName(service), response}
@@ -427,25 +457,25 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 		panic("Can't call Serve on an incorrectly-constructed *suture.Supervisor")
 	}
 
-	s.Lock()
+	s.m.Lock()
 	if s.state == terminated {
 		// Got stopped before we got started.
-		s.Unlock()
+		s.m.Unlock()
 		return nil
 	}
 
 	if s.state != notRunning {
-		s.Unlock()
+		s.m.Unlock()
 		panic("Called .Serve() on a supervisor that is already Serve()ing")
 	}
 
 	s.state = normal
-	s.Unlock()
+	s.m.Unlock()
 
 	defer func() {
-		s.Lock()
+		s.m.Lock()
 		s.state = notRunning
-		s.Unlock()
+		s.m.Unlock()
 	}()
 
 	// for all the services I currently know about, start them
@@ -516,9 +546,9 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 			// excessive thrashing
 			// FIXME: Ought to permit some spacing of these functions, rather
 			// than simply hammering through them
-			s.Lock()
+			s.m.Lock()
 			s.state = normal
-			s.Unlock()
+			s.m.Unlock()
 			s.failures = 0
 			s.spec.LogBackoff(s, false)
 			for _, id := range s.restartQueue {
@@ -559,14 +589,14 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 // Calling this on an already-stopped supervisor is invalid, but will
 // safely return nil anyhow.
 func (s *Supervisor) StopWithReport() UnstoppedServiceReport {
-	s.Lock()
+	s.m.Lock()
 	if s.state == notRunning {
 		s.state = terminated
-		s.Unlock()
+		s.m.Unlock()
 		return nil
 	}
 	s.state = terminated
-	s.Unlock()
+	s.m.Unlock()
 
 	done := make(chan UnstoppedServiceReport)
 	if s.sendControl(stopSupervisor{done}) {
@@ -597,9 +627,9 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 	}
 
 	if s.failures > s.spec.FailureThreshold {
-		s.Lock()
+		s.m.Lock()
 		s.state = paused
-		s.Unlock()
+		s.m.Unlock()
 		s.spec.LogBackoff(s, true)
 		s.resumeTimer = s.getAfterChan(
 			s.spec.BackoffJitter.Jitter(s.spec.FailureBackoff))
@@ -615,9 +645,9 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 		// this may look dangerous because the state could change, but this
 		// code is only ever run in the one goroutine that is permitted to
 		// change the state, so nothing else will.
-		s.Lock()
+		s.m.Lock()
 		curState := s.state
-		s.Unlock()
+		s.m.Unlock()
 		if curState == normal {
 			s.runService(ctx, failedService.Service, id)
 			s.spec.LogFailure(
