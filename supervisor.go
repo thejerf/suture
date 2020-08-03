@@ -111,8 +111,8 @@ Supervisors should be constructed either by New or NewSimple.
 
 Once constructed, a Supervisor should be started in one of three ways:
 
- 1. Calling .Serve().
- 2. Calling .ServeBackground().
+ 1. Calling .Serve(ctx).
+ 2. Calling .ServeBackground(ctx).
  3. Adding it to an existing Supervisor.
 
 Calling Serve will cause the supervisor to run until it is shut down by
@@ -157,6 +157,9 @@ type Supervisor struct {
 	LogBadStop BadStopLogger
 	LogFailure FailureLogger
 	LogBackoff BackoffLogger
+
+	// This function cancels this supervisor specifically.
+	myCancel func()
 
 	// avoid a dependency on github.com/thejerf/abtime by just implementing
 	// a minimal chunk.
@@ -421,8 +424,8 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 
 // ServeBackground starts running a supervisor in its own goroutine. When
 // this method returns, the supervisor is guaranteed to be in a running state.
-func (s *Supervisor) ServeBackground() {
-	go s.Serve(context.Background())
+func (s *Supervisor) ServeBackground(ctx context.Context) {
+	go s.Serve(ctx)
 	s.sync()
 }
 
@@ -431,6 +434,15 @@ Serve starts the supervisor. You should call this on the top-level supervisor,
 but nothing else.
 */
 func (s *Supervisor) Serve(ctx context.Context) error {
+	// context documentation suggests that it is legal for functions to
+	// take nil contexts, it's users that shouldn't ever pass them.
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ctx, myCancel := context.WithCancel(ctx)
+	s.myCancel = myCancel
+
 	if s == nil {
 		panic("Can't serve with a nil *suture.Supervisor")
 	}
