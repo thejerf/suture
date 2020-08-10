@@ -27,100 +27,6 @@ const (
 type supervisorID uint32
 type serviceID uint32
 
-type (
-	// BadStopLogger is called when a service fails to properly stop
-	BadStopLogger func(*Supervisor, Service, string)
-
-	// FailureLogger is called when a service fails
-	FailureLogger func(
-		supervisor *Supervisor,
-		service Service,
-		serviceName string,
-		currentFailures float64,
-		failureThreshold float64,
-		restarting bool,
-		error interface{},
-		stacktrace []byte,
-	)
-
-	// BackoffLogger is called when the supervisor enters or exits
-	// backoff mode
-	BackoffLogger func(s *Supervisor, entering bool)
-)
-
-var currentSupervisorIDL sync.Mutex
-var currentSupervisorID uint32
-
-func nextSupervisorID() supervisorID {
-	currentSupervisorIDL.Lock()
-	defer currentSupervisorIDL.Unlock()
-	currentSupervisorID++
-	return supervisorID(currentSupervisorID)
-}
-
-// ErrWrongSupervisor is returned by the (*Supervisor).Remove method
-// if you pass a ServiceToken from the wrong Supervisor.
-var ErrWrongSupervisor = errors.New("wrong supervisor for this service token, no service removed")
-
-// ErrTimeout is returned when an attempt to RemoveAndWait for a service to
-// stop has timed out.
-var ErrTimeout = errors.New("waiting for service to stop has timed out")
-
-// ErrSupervisorNotTerminated is returned when asking for a stopped service
-// report before the supervisor has been terminated.
-var ErrSupervisorNotTerminated = errors.New("supervisor not terminated")
-
-// ServiceToken is an opaque identifier that can be used to terminate a service that
-// has been Add()ed to a Supervisor.
-type ServiceToken struct {
-	id uint64
-}
-
-type UnstoppedService struct {
-	Service      Service
-	Name         string
-	ServiceToken ServiceToken
-}
-
-// An UnstoppedServiceReport will be returned by StopWithReport, reporting
-// which services failed to stop.
-type UnstoppedServiceReport []UnstoppedService
-
-type serviceWithName struct {
-	Service Service
-	name    string
-}
-
-// Jitter returns the sum of the input duration and a random jitter.  It is
-// compatible with the jitter functions in github.com/lthibault/jitterbug.
-type Jitter interface {
-	Jitter(time.Duration) time.Duration
-}
-
-// NoJitter does not apply any jitter to the input duration
-type NoJitter struct{}
-
-// Jitter leaves the input duration d unchanged.
-func (NoJitter) Jitter(d time.Duration) time.Duration { return d }
-
-// DefaultJitter is the jitter function that is applied when spec.BackoffJitter
-// is set to nil.
-type DefaultJitter struct {
-	rand *rand.Rand
-}
-
-// Jitter will jitter the backoff time by uniformly distributing it into
-// the range [FailureBackoff, 1.5 * FailureBackoff).
-func (dj *DefaultJitter) Jitter(d time.Duration) time.Duration {
-	// this is only called by the core supervisor loop, so it is
-	// single-thread safe.
-	if dj.rand == nil {
-		dj.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
-	}
-	jitter := dj.rand.Float64() / 2
-	return d + time.Duration(float64(d)*jitter)
-}
-
 /*
 Supervisor is the core type of the module that represents a Supervisor.
 
@@ -133,9 +39,8 @@ Once constructed, a Supervisor should be started in one of three ways:
  3. Adding it to an existing Supervisor.
 
 Calling Serve will cause the supervisor to run until the passed-in
-context is cancelled, or one of the Stop methods is called on it. Often
-one of the last lines of the "main" func for a program will be to
-call one of the Serve methods.
+context is cancelled. Often one of the last lines of the "main" func for a
+program will be to call one of the Serve methods.
 
 Calling ServeBackground will CORRECTLY start the supervisor running in a
 new goroutine. It is risky to directly run
@@ -169,8 +74,6 @@ type Supervisor struct {
 	// This function cancels this supervisor specifically.
 	myCancel func()
 
-	// avoid a dependency on github.com/thejerf/abtime by just implementing
-	// a minimal chunk.
 	getNow       func() time.Time
 	getAfterChan func(time.Duration) <-chan time.Time
 
@@ -183,104 +86,6 @@ type Supervisor struct {
 	// malign leftovers
 	id    supervisorID
 	state uint8
-}
-
-// Spec is used to pass arguments to the New function to create a
-// supervisor. See the New function for full documentation.
-type Spec struct {
-	Log               func(string)
-	FailureDecay      float64
-	FailureThreshold  float64
-	FailureBackoff    time.Duration
-	BackoffJitter     Jitter
-	Timeout           time.Duration
-	LogBadStop        BadStopLogger
-	LogFailure        FailureLogger
-	LogBackoff        BackoffLogger
-	PassThroughPanics bool
-}
-
-func (s *Spec) configureDefaults(supervisorName string) {
-	if s.FailureDecay == 0 {
-		s.FailureDecay = 30
-	}
-	if s.FailureThreshold == 0 {
-		s.FailureThreshold = 5
-	}
-	if s.FailureBackoff == 0 {
-		s.FailureBackoff = time.Second * 15
-	}
-	if s.BackoffJitter == nil {
-		s.BackoffJitter = &DefaultJitter{}
-	}
-	if s.Timeout == 0 {
-		s.Timeout = time.Second * 10
-	}
-
-	// set up the default logging handlers
-	if s.Log == nil {
-		s.Log = func(msg string) {
-			log.Print(fmt.Sprintf("Supervisor %s: %s", supervisorName, msg))
-		}
-	}
-
-	if s.LogBadStop == nil {
-		s.LogBadStop = func(sup *Supervisor, _ Service, name string) {
-			s.Log(fmt.Sprintf(
-				"%s: Service %s failed to terminate in a timely manner",
-				sup.Name,
-				name,
-			))
-		}
-	}
-
-	if s.LogFailure == nil {
-		s.LogFailure = func(
-			sup *Supervisor,
-			_ Service,
-			svcName string,
-			f float64,
-			thresh float64,
-			restarting bool,
-			err interface{},
-			st []byte,
-		) {
-			errString := "service returned unexpectedly"
-			if err != nil {
-				e, canError := err.(error)
-				if canError {
-					errString = e.Error()
-				} else {
-					errString = fmt.Sprintf("%#v", err)
-				}
-			}
-
-			msg := fmt.Sprintf(
-				"%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s",
-				sup.Name,
-				svcName,
-				f,
-				thresh,
-				restarting,
-				errString,
-			)
-			if len(st) > 0 {
-				msg += fmt.Sprintf(", stacktrace: %s", string(st))
-			}
-
-			s.Log(msg)
-		}
-	}
-
-	if s.LogBackoff == nil {
-		s.LogBackoff = func(supervisor *Supervisor, entering bool) {
-			if entering {
-				s.Log(supervisorName + ": Entering the backoff state.")
-			} else {
-				s.Log(supervisorName + ": Exiting backoff state.")
-			}
-		}
-	}
 }
 
 /*
@@ -328,6 +133,11 @@ Timeout is how long Suture will wait for a service to properly terminate.
 The PassThroughPanics options can be set to let panics in services propagate
 and crash the program, should this be desirable.
 
+PropagateTermination indicates whether this supervisor tree will
+propagate a ErrTerminateTree if a child process returns it. If true,
+this supervisor will itself return an error that will terminate its
+parent. If false, it will merely return ErrDoNotRestart.
+
 */
 func New(name string, spec Spec) *Supervisor {
 	spec.configureDefaults(name)
@@ -372,6 +182,9 @@ func New(name string, spec Spec) *Supervisor {
 
 		// m
 		sync.Mutex{},
+
+		// unstoppedServiceReport
+		nil,
 
 		// id
 		nextSupervisorID(),
@@ -455,11 +268,13 @@ but nothing else.
 */
 func (s *Supervisor) Serve(ctx context.Context) error {
 	// context documentation suggests that it is legal for functions to
-	// take nil contexts, it's users that shouldn't ever pass them.
+	// take nil contexts, it's user's responsibility to never pass them in.
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
+	// Take a separate cancellation function so this tree can be
+	// indepedently cancelled.
 	ctx, myCancel := context.WithCancel(ctx)
 	s.myCancel = myCancel
 	s.ctx = ctx
@@ -472,12 +287,6 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 	}
 
 	s.m.Lock()
-	if s.state == terminated {
-		// Got stopped before we got started.
-		s.m.Unlock()
-		return nil
-	}
-
 	if s.state != notRunning {
 		s.m.Unlock()
 		panic("Called .Serve() on a supervisor that is already Serve()ing")
@@ -488,7 +297,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 
 	defer func() {
 		s.m.Lock()
-		s.state = notRunning
+		s.state = terminated
 		s.m.Unlock()
 	}()
 
@@ -577,9 +386,12 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 }
 
 // UnstoppedServiceReport will return a report of what services failed to
-// stop when the supervisor was stopped. This is only valid to call when a
-// supervisor has been shut down; prior to that, you will get an
-// error. This is the only possible error.
+// stop when the supervisor was stopped. This call will return when the
+// supervisor is done shutting down. It will hang on a supervisor that has
+// not been stopped, because it will not be "done shutting down".
+//
+// Calling this on a supervisor will return a report for the whole
+// supervisor tree under it.
 //
 // WARNING: Technically, any use of the returned data structure is a
 // TOCTOU violation:
@@ -599,9 +411,6 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 //
 // If there are no services to report, the UnstoppedServiceReport will be
 // nil. A zero-length constructed slice is never returned.
-//
-// Calling this on an already-stopped supervisor is invalid, but will
-// safely return nil anyhow.
 func (s *Supervisor) UnstoppedServiceReport() (UnstoppedServiceReport, error) {
 	s.m.Lock()
 	state := s.state
@@ -612,15 +421,6 @@ func (s *Supervisor) UnstoppedServiceReport() (UnstoppedServiceReport, error) {
 	}
 
 	return s.unstoppedServiceReport, nil
-}
-
-// Stop stops the Supervisor.
-//
-// This function will not return until either all Services have stopped, or
-// they timeout after the timeout value given to the Supervisor at
-// creation.
-func (s *Supervisor) Stop() {
-	s.StopWithReport()
 }
 
 func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err interface{}, stacktrace []byte) {
@@ -770,6 +570,7 @@ func (s *Supervisor) stopSupervisor() UnstoppedServiceReport {
 	}
 
 	timeout := s.getAfterChan(s.spec.Timeout)
+
 SHUTTING_DOWN_SERVICES:
 	for len(s.servicesShuttingDown) > 0 {
 		select {
@@ -805,6 +606,9 @@ SHUTTING_DOWN_SERVICES:
 				ServiceToken: ServiceToken{uint64(s.id)<<32 | uint64(serviceID)},
 			})
 		}
+		s.m.Lock()
+		s.unstoppedServiceReport = report
+		s.m.Unlock()
 		return report
 	}
 }
@@ -815,10 +619,8 @@ func (s *Supervisor) String() string {
 }
 
 // sendControl abstracts checking for the supervisor to still be running
-// when we send a message. This way, if someone does call Stop twice on a
-// supervisor or call stop in one goroutine while calling Stop in another,
-// the goroutines trying to call methods on a stopped supervisor won't hang
-// forever and leak.
+// when we send a message. This prevents blocking when sending to a
+// cancelled supervisor.
 func (s *Supervisor) sendControl(sm supervisorMessage) bool {
 	select {
 	case s.control <- sm:
@@ -905,4 +707,203 @@ func (s *Supervisor) Services() []Service {
 		return <-ls.c
 	}
 	return nil
+}
+
+var currentSupervisorIDL sync.Mutex
+var currentSupervisorID uint32
+
+func nextSupervisorID() supervisorID {
+	currentSupervisorIDL.Lock()
+	defer currentSupervisorIDL.Unlock()
+	currentSupervisorID++
+	return supervisorID(currentSupervisorID)
+}
+
+// ServiceToken is an opaque identifier that can be used to terminate a service that
+// has been Add()ed to a Supervisor.
+type ServiceToken struct {
+	id uint64
+}
+
+// An UnstoppedService is the component member of an
+// UnstoppedServiceReport.
+//
+// The SupervisorPath is the path down the supervisor tree to the given
+// service.
+type UnstoppedService struct {
+	SupervisorPath []*Supervisor
+	Service        Service
+	Name           string
+	ServiceToken   ServiceToken
+}
+
+// An UnstoppedServiceReport will be returned by StopWithReport, reporting
+// which services failed to stop.
+type UnstoppedServiceReport []UnstoppedService
+
+type serviceWithName struct {
+	Service Service
+	name    string
+}
+
+// Jitter returns the sum of the input duration and a random jitter.  It is
+// compatible with the jitter functions in github.com/lthibault/jitterbug.
+type Jitter interface {
+	Jitter(time.Duration) time.Duration
+}
+
+// NoJitter does not apply any jitter to the input duration
+type NoJitter struct{}
+
+// Jitter leaves the input duration d unchanged.
+func (NoJitter) Jitter(d time.Duration) time.Duration { return d }
+
+// DefaultJitter is the jitter function that is applied when spec.BackoffJitter
+// is set to nil.
+type DefaultJitter struct {
+	rand *rand.Rand
+}
+
+// Jitter will jitter the backoff time by uniformly distributing it into
+// the range [FailureBackoff, 1.5 * FailureBackoff).
+func (dj *DefaultJitter) Jitter(d time.Duration) time.Duration {
+	// this is only called by the core supervisor loop, so it is
+	// single-thread safe.
+	if dj.rand == nil {
+		dj.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	jitter := dj.rand.Float64() / 2
+	return d + time.Duration(float64(d)*jitter)
+}
+
+type (
+	// BadStopLogger is called when a service fails to properly stop
+	BadStopLogger func(*Supervisor, Service, string)
+
+	// FailureLogger is called when a service fails
+	FailureLogger func(
+		supervisor *Supervisor,
+		service Service,
+		serviceName string,
+		currentFailures float64,
+		failureThreshold float64,
+		restarting bool,
+		error interface{},
+		stacktrace []byte,
+	)
+
+	// BackoffLogger is called when the supervisor enters or exits
+	// backoff mode
+	BackoffLogger func(s *Supervisor, entering bool)
+)
+
+// ErrWrongSupervisor is returned by the (*Supervisor).Remove method
+// if you pass a ServiceToken from the wrong Supervisor.
+var ErrWrongSupervisor = errors.New("wrong supervisor for this service token, no service removed")
+
+// ErrTimeout is returned when an attempt to RemoveAndWait for a service to
+// stop has timed out.
+var ErrTimeout = errors.New("waiting for service to stop has timed out")
+
+// ErrSupervisorNotTerminated is returned when asking for a stopped service
+// report before the supervisor has been terminated.
+var ErrSupervisorNotTerminated = errors.New("supervisor not terminated")
+
+// Spec is used to pass arguments to the New function to create a
+// supervisor. See the New function for full documentation.
+type Spec struct {
+	Log                  func(string)
+	FailureDecay         float64
+	FailureThreshold     float64
+	FailureBackoff       time.Duration
+	BackoffJitter        Jitter
+	Timeout              time.Duration
+	LogBadStop           BadStopLogger
+	LogFailure           FailureLogger
+	LogBackoff           BackoffLogger
+	PassThroughPanics    bool
+	PropagateTermination bool
+}
+
+func (s *Spec) configureDefaults(supervisorName string) {
+	if s.FailureDecay == 0 {
+		s.FailureDecay = 30
+	}
+	if s.FailureThreshold == 0 {
+		s.FailureThreshold = 5
+	}
+	if s.FailureBackoff == 0 {
+		s.FailureBackoff = time.Second * 15
+	}
+	if s.BackoffJitter == nil {
+		s.BackoffJitter = &DefaultJitter{}
+	}
+	if s.Timeout == 0 {
+		s.Timeout = time.Second * 10
+	}
+
+	// set up the default logging handlers
+	if s.Log == nil {
+		s.Log = func(msg string) {
+			log.Print(fmt.Sprintf("Supervisor %s: %s", supervisorName, msg))
+		}
+	}
+
+	if s.LogBadStop == nil {
+		s.LogBadStop = func(sup *Supervisor, _ Service, name string) {
+			s.Log(fmt.Sprintf(
+				"%s: Service %s failed to terminate in a timely manner",
+				sup.Name,
+				name,
+			))
+		}
+	}
+
+	if s.LogFailure == nil {
+		s.LogFailure = func(
+			sup *Supervisor,
+			_ Service,
+			svcName string,
+			f float64,
+			thresh float64,
+			restarting bool,
+			err interface{},
+			st []byte,
+		) {
+			errString := "service returned unexpectedly"
+			if err != nil {
+				e, canError := err.(error)
+				if canError {
+					errString = e.Error()
+				} else {
+					errString = fmt.Sprintf("%#v", err)
+				}
+			}
+
+			msg := fmt.Sprintf(
+				"%s: Failed service '%s' (%f failures of %f), restarting: %#v, error: %s",
+				sup.Name,
+				svcName,
+				f,
+				thresh,
+				restarting,
+				errString,
+			)
+			if len(st) > 0 {
+				msg += fmt.Sprintf(", stacktrace: %s", string(st))
+			}
+
+			s.Log(msg)
+		}
+	}
+
+	if s.LogBackoff == nil {
+		s.LogBackoff = func(supervisor *Supervisor, entering bool) {
+			if entering {
+				s.Log(supervisorName + ": Entering the backoff state.")
+			} else {
+				s.Log(supervisorName + ": Exiting backoff state.")
+			}
+		}
+	}
 }

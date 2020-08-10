@@ -49,6 +49,19 @@ Changelog
 
 suture uses semantic versioning.
 
+* 4.0:
+  * Switched the entire API to be context based.
+  * Consequently, "Stop" removed from the Service interface. A wrapper for
+    old-style code is provided.
+  * Services can now return errors. Two special errors control restarting
+    behavior:
+      * ErrDoNotRestart indicates the service should not be restarted,
+        but other services should be unaffected.
+      * ErrTerminateTree indicates the parent service tree should be
+        terminated.
+  * UnstoppedServiceReport calling semantics modified to allow correctly
+    retrieving reports from entire trees. (Prior to 4.0, a report was
+    only on the supervisor it was called on.)
 * 3.0.3:
   * Implemented request in Issue #37, creating a new method StopWithReport
     on supervisors that reports what services failed to stop. While a bit
