@@ -323,13 +323,13 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 				_, monitored := s.services[msg.id]
 				if monitored {
 					cancel := s.cancellations[msg.id]
-					if errors.Is(msg.err, ErrComplete) {
+					if errors.Is(msg.err, ErrDoNotRestart) {
 						delete(s.services, msg.id)
 						delete(s.cancellations, msg.id)
 						go func() {
 							cancel()
 						}()
-					} else if errors.Is(msg.err, ErrAbort) {
+					} else if errors.Is(msg.err, ErrTerminateSupervisorTree) {
 						s.stopSupervisor()
 						return msg.err
 					} else {
