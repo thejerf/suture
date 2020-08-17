@@ -76,6 +76,6 @@ type Service interface {
 // be restarted.
 var ErrDoNotRestart = errors.New("service should not be restarted")
 
-// ErrTerminateTree can can be returned by a service to terminate the
+// ErrTerminateSupervisorTree can can be returned by a service to terminate the
 // entire supervision tree above it as well.
 var ErrTerminateSupervisorTree = errors.New("tree should be terminated")
