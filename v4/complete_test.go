@@ -22,7 +22,7 @@ func (i *IncrementorJob) Serve(ctx context.Context) error {
 			i.current++
 			if i.current >= JobLimit {
 				fmt.Println("Stopping the service")
-				return ErrComplete
+				return ErrDoNotRestart
 			}
 		}
 	}
@@ -33,12 +33,13 @@ func TestCompleteJob(t *testing.T) {
 	service := &IncrementorJob{0, make(chan int)}
 	supervisor.Add(service)
 
-	supervisor.ServeBackground()
+	ctx, myCancel := context.WithCancel(context.Background())
+	supervisor.ServeBackground(ctx)
 
 	fmt.Println("Got:", <-service.next)
 	fmt.Println("Got:", <-service.next)
 
-	supervisor.Stop()
+	myCancel()
 
 	// Output:
 	// Got: 1
