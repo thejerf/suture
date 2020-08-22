@@ -1,6 +1,7 @@
 package suture
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -31,12 +32,12 @@ func TestTheHappyCase(t *testing.T) {
 
 	s.Add(service)
 
-	go s.Serve()
+	go s.Serve(context.Background())
 
 	<-service.started
 
 	// If we stop the service, it just gets restarted
-	service.Stop()
+	service.take <- Fail
 	<-service.started
 
 	// And it is shut down when we stop the supervisor
@@ -72,7 +73,7 @@ func TestFailures(t *testing.T) {
 	s := NewSimple("A2")
 	s.failureThreshold = 3.5
 
-	go s.Serve()
+	go s.Serve(context.Background())
 	defer func() {
 		// to avoid deadlocks during shutdown, we have to not try to send
 		// things out on channels while we're shutting down (this undoes the
@@ -209,7 +210,7 @@ func TestRunningAlreadyRunning(t *testing.T) {
 	t.Parallel()
 
 	s := NewSimple("A3")
-	go s.Serve()
+	go s.Serve(context.Background())
 	defer s.Stop()
 
 	// ensure the supervisor has made it to its main loop
@@ -245,7 +246,7 @@ func TestDefaultLogging(t *testing.T) {
 
 	s.failureThreshold = .5
 	s.failureBackoff = time.Millisecond * 25
-	go s.Serve()
+	go s.Serve(context.Background())
 	s.sync()
 
 	<-service.started
@@ -290,7 +291,7 @@ func TestNestedSupervisors(t *testing.T) {
 	// get copied
 	super2.LogBadStop(super2, service, "Service5")
 
-	go super1.Serve()
+	go super1.Serve(context.Background())
 	super1.sync()
 
 	<-service.started
@@ -307,7 +308,7 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 
 	s.Add(service)
 
-	go s.Serve()
+	go s.Serve(context.Background())
 	s.sync()
 
 	<-service.started
@@ -334,7 +335,7 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 
 	s.Add(service)
 
-	go s.Serve()
+	go s.Serve(context.Background())
 
 	<-service.started
 
@@ -377,7 +378,7 @@ func TestRemovingHungService(t *testing.T) {
 
 	sToken := s.Add(service)
 
-	go s.Serve()
+	go s.Serve(context.Background())
 
 	<-service.started
 	service.take <- Hang
@@ -397,7 +398,7 @@ func TestRemoveService(t *testing.T) {
 
 	id := s.Add(service)
 
-	go s.Serve()
+	go s.Serve(context.Background())
 
 	<-service.started
 	service.take <- UseStopChan
@@ -426,16 +427,18 @@ func TestServiceReport(t *testing.T) {
 	service := NewService("ServiceName")
 
 	id := s.Add(service)
-	go s.Serve()
+	go s.Serve(context.Background())
 
 	<-service.started
 	service.take <- Hang
 
-	report := s.StopWithReport()
-	if !reflect.DeepEqual(report, UnstoppedServiceReport{
+	expected := UnstoppedServiceReport{
 		{service, "ServiceName", id},
-	}) {
-		t.Fatal("did not get expected stop service report")
+	}
+
+	report := s.StopWithReport()
+	if !reflect.DeepEqual(report, expected) {
+		t.Fatalf("did not get expected stop service report %#v != %#v", report, expected)
 	}
 
 	// coverage testing; StopWithReport on a stopped supervisor returns a
@@ -450,14 +453,10 @@ func TestFailureToConstruct(t *testing.T) {
 
 	var s *Supervisor
 
-	panics(func() {
-		s.Serve()
-	})
+	panics(s.Serve)
 
 	s = new(Supervisor)
-	panics(func() {
-		s.Serve()
-	})
+	panics(s.Serve)
 }
 
 func TestFailingSupervisors(t *testing.T) {
@@ -494,7 +493,7 @@ func TestFailingSupervisors(t *testing.T) {
 	s1.Add(s2)
 	s2.Add(service)
 
-	go s1.Serve()
+	go s1.Serve(context.Background())
 	<-service.started
 
 	s1.failureThreshold = .5
@@ -637,7 +636,7 @@ func TestStopSupervisorPanic(t *testing.T) {
 		t.Fatal("stopping server didn't go to the terminated state")
 	}
 	// this should return because it should come back having done nothing
-	s.Serve()
+	s.Serve(context.Background())
 }
 
 func TestSupervisorManagementIssue35(t *testing.T) {
@@ -719,20 +718,19 @@ func TestEverMultistarted(t *testing.T) {
 // A test service that can be induced to fail, panic, or hang on demand.
 func NewService(name string) *FailableService {
 	return &FailableService{name, make(chan bool), make(chan int),
-		make(chan bool), make(chan bool), make(chan bool), 0}
+		make(chan bool), make(chan bool, 1), 0}
 }
 
 type FailableService struct {
 	name     string
 	started  chan bool
 	take     chan int
-	shutdown chan bool
 	release  chan bool
 	stop     chan bool
 	existing int
 }
 
-func (s *FailableService) Serve() {
+func (s *FailableService) Serve(ctx context.Context) error {
 	if s.existing != 0 {
 		everMultistarted = true
 		panic("Multi-started the same service! " + s.name)
@@ -754,7 +752,7 @@ func (s *FailableService) Serve() {
 				if useStopChan {
 					s.stop <- true
 				}
-				return
+				return nil
 			case Panic:
 				s.existing--
 				panic("Panic!")
@@ -764,22 +762,18 @@ func (s *FailableService) Serve() {
 			case UseStopChan:
 				useStopChan = true
 			}
-		case <-s.shutdown:
+		case <-ctx.Done():
 			s.existing--
 			if useStopChan {
 				s.stop <- true
 			}
-			return
+			return ctx.Err()
 		}
 	}
 }
 
 func (s *FailableService) String() string {
 	return s.name
-}
-
-func (s *FailableService) Stop() {
-	s.shutdown <- true
 }
 
 type NowFeeder struct {
@@ -791,8 +785,9 @@ type NowFeeder struct {
 // This is used to test serviceName; it's a service without a Stringer.
 type BarelyService struct{}
 
-func (bs *BarelyService) Serve() {}
-func (bs *BarelyService) Stop()  {}
+func (bs *BarelyService) Serve(context context.Context) error {
+	return nil
+}
 
 func NewNowFeeder() (nf *NowFeeder) {
 	nf = new(NowFeeder)
@@ -815,14 +810,14 @@ func (nf *NowFeeder) appendTimes(t ...time.Time) {
 	nf.values = append(nf.values, t...)
 }
 
-func panics(doesItPanic func()) (panics bool) {
+func panics(doesItPanic func(ctx context.Context) error) (panics bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			panics = true
 		}
 	}()
 
-	doesItPanic()
+	doesItPanic(context.Background())
 
 	return
 }

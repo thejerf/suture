@@ -1,33 +1,23 @@
 package suture
 
-import (
-	"fmt"
-	"testing"
-)
+import "fmt"
 
-const (
-	JobLimit = 2
-)
-
-type IncrementorJob struct {
+type Incrementor struct {
 	current int
 	next    chan int
 	stop    chan bool
 }
 
-func (i *IncrementorJob) Stop() {
+func (i *Incrementor) Stop() {
 	fmt.Println("Stopping the service")
 	i.stop <- true
 }
 
-func (i *IncrementorJob) Serve() {
+func (i *Incrementor) Serve() {
 	for {
 		select {
-		case i.next <- i.current + 1:
+		case i.next <- i.current:
 			i.current++
-			if i.current >= JobLimit {
-				return
-			}
 		case <-i.stop:
 			// We sync here just to guarantee the output of "Stopping the service",
 			// so this passes the test reliably.
@@ -38,29 +28,22 @@ func (i *IncrementorJob) Serve() {
 	}
 }
 
-func (i *IncrementorJob) Complete() bool {
-	// fmt.Println("IncrementorJob exited as Complete()")
-	return i.current >= JobLimit
-}
-
-func TestCompleteJob(t *testing.T) {
+func ExampleNew_simple() {
 	supervisor := NewSimple("Supervisor")
-	service := &IncrementorJob{0, make(chan int), make(chan bool)}
-	supervisor.Add(service)
+	service := &Incrementor{0, make(chan int), make(chan bool)}
+	supervisor.Add(AsService(service))
 
 	supervisor.ServeBackground()
 
 	fmt.Println("Got:", <-service.next)
 	fmt.Println("Got:", <-service.next)
-
-	<-service.stop
-
-	fmt.Println("IncrementorJob exited as Complete()")
-
 	supervisor.Stop()
 
+	// We sync here just to guarantee the output of "Stopping the service"
+	<-service.stop
+
 	// Output:
+	// Got: 0
 	// Got: 1
-	// Got: 2
 	// Stopping the service
 }
