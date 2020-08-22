@@ -22,7 +22,7 @@ var everMultistarted = false
 
 // Test that supervisors work perfectly when everything is hunky dory.
 func TestTheHappyCase(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("A")
 	if s.String() != "A" {
@@ -49,7 +49,7 @@ func TestTheHappyCase(t *testing.T) {
 
 // Test that adding to a running supervisor does indeed start the service.
 func TestAddingToRunningSupervisor(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("A1")
 
@@ -70,7 +70,7 @@ func TestAddingToRunningSupervisor(t *testing.T) {
 
 // Test what happens when services fail.
 func TestFailures(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("A2")
 	s.spec.FailureThreshold = 3.5
@@ -210,7 +210,7 @@ func TestFailures(t *testing.T) {
 }
 
 func TestRunningAlreadyRunning(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("A3")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -225,7 +225,7 @@ func TestRunningAlreadyRunning(t *testing.T) {
 }
 
 func TestFullConstruction(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := New("Moo", Spec{
 		Log:              func(string) {},
@@ -241,7 +241,7 @@ func TestFullConstruction(t *testing.T) {
 
 // This is mostly for coverage testing.
 func TestDefaultLogging(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("A4")
 
@@ -279,7 +279,7 @@ func TestDefaultLogging(t *testing.T) {
 }
 
 func TestNestedSupervisors(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	super1 := NewSimple("Top5")
 	super2 := NewSimple("Nested5")
@@ -307,7 +307,7 @@ func TestNestedSupervisors(t *testing.T) {
 }
 
 func TestStoppingSupervisorStopsServices(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("Top6")
 	service := NewService("Service 6")
@@ -335,7 +335,7 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 
 // This tests that even if a service is hung, the supervisor will stop.
 func TestStoppingStillWorksWithHungServices(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("Top7")
 	service := NewService("Service WillHang7")
@@ -371,7 +371,7 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 // This tests that even if a service is hung, the supervisor can still
 // remove it.
 func TestRemovingHungService(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("TopHungService")
 	failNotify := make(chan struct{})
@@ -399,7 +399,7 @@ func TestRemovingHungService(t *testing.T) {
 }
 
 func TestRemoveService(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("Top")
 	service := NewService("ServiceToRemove8")
@@ -428,7 +428,7 @@ func TestRemoveService(t *testing.T) {
 }
 
 func TestServiceReport(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("Top")
 	s.spec.Timeout = time.Millisecond
@@ -457,7 +457,7 @@ func TestServiceReport(t *testing.T) {
 }
 
 func TestFailureToConstruct(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	var s *Supervisor
 
@@ -468,7 +468,7 @@ func TestFailureToConstruct(t *testing.T) {
 }
 
 func TestFailingSupervisors(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	// This is a bit of a complicated test, so let me explain what
 	// all this is doing:
@@ -501,38 +501,57 @@ func TestFailingSupervisors(t *testing.T) {
 	s1.Add(s2)
 	s2.Add(service)
 
-	go s1.Serve(context.Background())
+	// start the top-level supervisor...
+	ctx, cancel := context.WithCancel(context.Background())
+	go s1.Serve(ctx)
+	defer cancel()
+	// and sync on the service being started.
 	<-service.started
 
+	// Set the failure threshold such that even one failure triggers
+	// backoff on the top-level supervisor.
 	s1.spec.FailureThreshold = .5
 
-	// let us control precisely when s1 comes back
+	// This lets us control exactly when the top-level supervisor comes
+	// back from its backoff, by forcing it to block on this channel
+	// being sent something in order to come back.
 	resumeChan := make(chan time.Time)
 	s1.getAfterChan = func(d time.Duration) <-chan time.Time {
 		return resumeChan
 	}
 	failNotify := make(chan string)
-	// use this to synchronize on here
+	// synchronize on the expected failure of the middle supervisor
 	s1.spec.LogFailure = func(supervisor *Supervisor, s Service, name string, cf float64, ft float64, r bool, error interface{}, stacktrace []byte) {
 		failNotify <- fmt.Sprintf("%s", s)
 	}
 
+	// Now, the middle supervisor panics and dies.
 	s2.panic()
 
+	// Receive the notification from the hacked log message from the
+	// top-level supervisor that the middle has failed.
 	failing := <-failNotify
 	// that's enough sync to guarantee this:
 	if failing != "Nested9" || s1.state != paused {
 		t.Fatal("Top-level supervisor did not go into backoff as expected")
 	}
 
+	// Tell the service to fail. Note the top-level supervisor has
+	// still not restarted the middle supervisor.
 	service.take <- Fail
 
+	// We now permit the top-level supervisor to resume. It should
+	// restart the middle supervisor, which should then restart the
+	// child service...
 	resumeChan <- time.Time{}
+
+	// which we can pick up from here. If this successfully restarts,
+	// then the whole chain must have worked.
 	<-service.started
 }
 
 func TestNilSupervisorAdd(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	var s *Supervisor
 
@@ -550,7 +569,7 @@ func TestNilSupervisorAdd(t *testing.T) {
 // The purpose of this test is to verify that it does not cause data races,
 // so there are no obvious assertions.
 func TestIssue11(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("main")
 	s.ServeBackground(context.Background())
@@ -562,7 +581,7 @@ func TestIssue11(t *testing.T) {
 }
 
 func TestRemoveAndWait(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	s := NewSimple("main")
 	s.spec.Timeout = time.Second
@@ -671,7 +690,7 @@ func TestCoverage(t *testing.T) {
 }
 
 func TestStopAfterRemoveAndWait(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 
 	var badStopError error
 

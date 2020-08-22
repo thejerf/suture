@@ -312,7 +312,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 	}
 
 	s.m.Lock()
-	if s.state != notRunning {
+	if s.state == normal || s.state == paused {
 		s.m.Unlock()
 		panic("Called .Serve() on a supervisor that is already Serve()ing")
 	}
