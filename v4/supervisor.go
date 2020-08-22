@@ -66,6 +66,7 @@ type Supervisor struct {
 	control              chan supervisorMessage
 	notifyServiceDone    chan serviceID
 	resumeTimer          <-chan time.Time
+	liveness             chan struct{}
 
 	// despite the recommendation in the context package to avoid
 	// holding this in a struct, I think due to the function of suture
@@ -168,6 +169,9 @@ func New(name string, spec Spec) *Supervisor {
 		make(chan serviceID),
 		// resumeTimer
 		make(chan time.Time),
+
+		// liveness
+		make(chan struct{}),
 
 		// ctx
 		nil,
@@ -433,13 +437,9 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 // If there are no services to report, the UnstoppedServiceReport will be
 // nil. A zero-length constructed slice is never returned.
 func (s *Supervisor) UnstoppedServiceReport() (UnstoppedServiceReport, error) {
-	s.m.Lock()
-	state := s.state
-	s.m.Unlock()
-
-	if state != terminated {
-		return nil, ErrSupervisorNotTerminated
-	}
+	// the only thing that ever happens to this channel is getting
+	// closed when the supervisor terminates.
+	_, _ = <-s.liveness
 
 	// FIXME: Recurse on the supervisors
 	return s.unstoppedServiceReport, nil
@@ -612,15 +612,19 @@ SHUTTING_DOWN_SERVICES:
 	// If nothing else has cancelled our context, we should now.
 	s.myCancel()
 
+	// Indicate that we're done shutting down
+	defer close(s.liveness)
+
 	if len(s.servicesShuttingDown) == 0 {
 		return nil
 	} else {
 		report := UnstoppedServiceReport{}
 		for serviceID, serviceWithName := range s.servicesShuttingDown {
 			report = append(report, UnstoppedService{
-				Service:      serviceWithName.Service,
-				Name:         serviceWithName.name,
-				ServiceToken: ServiceToken{uint64(s.id)<<32 | uint64(serviceID)},
+				SupervisorPath: []*Supervisor{s},
+				Service:        serviceWithName.Service,
+				Name:           serviceWithName.name,
+				ServiceToken:   ServiceToken{uint64(s.id)<<32 | uint64(serviceID)},
 			})
 		}
 		s.m.Lock()
