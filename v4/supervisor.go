@@ -298,15 +298,15 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 		ctx = context.Background()
 	}
 
+	if s == nil {
+		panic("Can't serve with a nil *suture.Supervisor")
+	}
 	// Take a separate cancellation function so this tree can be
 	// indepedently cancelled.
 	ctx, myCancel := context.WithCancel(ctx)
 	s.ctx = ctx
 	s.myCancel = myCancel
 
-	if s == nil {
-		panic("Can't serve with a nil *suture.Supervisor")
-	}
 	if s.id == 0 {
 		panic("Can't call Serve on an incorrectly-constructed *suture.Supervisor")
 	}
@@ -348,12 +348,10 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 				_, monitored := s.services[msg.id]
 				if monitored {
 					cancel := s.cancellations[msg.id]
-					if isErr(msg.err, ErrDoNotRestart) {
+					if isErr(msg.err, ErrDoNotRestart) || isErr(msg.err, context.Canceled) || isErr(msg.err, context.DeadlineExceeded) {
 						delete(s.services, msg.id)
 						delete(s.cancellations, msg.id)
-						go func() {
-							cancel()
-						}()
+						go cancel()
 					} else if isErr(msg.err, ErrTerminateSupervisorTree) {
 						s.stopSupervisor()
 						return msg.err

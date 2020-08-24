@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ const (
 	Panic
 	Hang
 	UseStopChan
+	TerminateTree
+	DoNotRestart
 )
 
 var everMultistarted = false
@@ -564,6 +567,24 @@ func TestNilSupervisorAdd(t *testing.T) {
 	s.Add(s)
 }
 
+func TestPassNoContextToSupervisor(t *testing.T) {
+	s := NewSimple("main")
+	service := NewService("B")
+	s.Add(service)
+
+	go s.Serve(nil)
+	<-service.started
+
+	s.myCancel()
+}
+
+func TestNilSupervisorPanicsAsExpected(t *testing.T) {
+	s := (*Supervisor)(nil)
+	if !panicsWith(s.Serve, "with a nil *suture.Supervisor") {
+		t.Fatal("nil supervisor doesn't panic as expected")
+	}
+}
+
 // https://github.com/thejerf/suture/issues/11
 //
 // The purpose of this test is to verify that it does not cause data races,
@@ -721,6 +742,37 @@ func TestStopAfterRemoveAndWait(t *testing.T) {
 	}
 }
 
+// This tests that the entire supervisor tree is terminated when a service
+// returns returns ErrTerminateTree directly.
+func TestServiceAndTreeTermination(t *testing.T) {
+	s1 := NewSimple("TestTreeTermination1")
+	s2 := NewSimple("TestTreeTermination2")
+	s1.Add(s2)
+
+	service1 := NewService("TestTreeTerminationService1")
+	service2 := NewService("TestTreeTerminationService2")
+	service3 := NewService("TestTreeTerminationService2")
+	s2.Add(service1)
+	s2.Add(service2)
+	s2.Add(service3)
+
+	terminated := make(chan struct{})
+	go func() {
+		// we don't need the context because the service is going
+		// to terminate the supervisor.
+		s1.Serve(nil)
+		terminated <- struct{}{}
+	}()
+
+	<-service1.started
+	<-service2.started
+	<-service3.started
+
+	// OK, everything is up and running. Start by telling one service
+	// to terminate itself, and verify it isn't restarted.
+	service3.take <- DoNotRestart
+}
+
 // http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
 // claims test function are run in the same order as the source file...
 // I'm not sure if this is part of the contract, though. Especially in the
@@ -781,6 +833,10 @@ func (s *FailableService) Serve(ctx context.Context) error {
 				<-s.release
 			case UseStopChan:
 				useStopChan = true
+			case TerminateTree:
+				return ErrTerminateSupervisorTree
+			case DoNotRestart:
+				return ErrDoNotRestart
 			}
 		case <-ctx.Done():
 			s.existing--
@@ -834,6 +890,23 @@ func panics(doesItPanic func(ctx context.Context) error) (panics bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			panics = true
+		}
+	}()
+
+	doesItPanic(context.Background())
+
+	return
+}
+
+func panicsWith(doesItPanic func(context.Context) error, s string) (panics bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			rStr := fmt.Sprintf("%v", r)
+			if !strings.Contains(rStr, s) {
+				fmt.Println("unexpected:", rStr)
+			} else {
+				panics = true
+			}
 		}
 	}()
 
