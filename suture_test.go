@@ -716,6 +716,29 @@ func TestEverMultistarted(t *testing.T) {
 	}
 }
 
+func TestAddAfterStopping(t *testing.T) {
+	// t.Parallel()
+
+	s := NewSimple("main")
+
+	service := NewService("A1")
+	addDone := make(chan struct{})
+
+	s.ServeBackground()
+	s.Stop()
+
+	go func() {
+		s.Add(service)
+		close(addDone)
+	}()
+
+	select {
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timed out waiting for Add to return")
+	case <-addDone:
+	}
+}
+
 // A test service that can be induced to fail, panic, or hang on demand.
 func NewService(name string) *FailableService {
 	return &FailableService{name, make(chan bool), make(chan int),
