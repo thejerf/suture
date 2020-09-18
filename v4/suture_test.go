@@ -746,7 +746,7 @@ func TestStopAfterRemoveAndWait(t *testing.T) {
 // This tests that the entire supervisor tree is terminated when a service
 // returns returns ErrTerminateTree directly.
 func TestServiceAndTreeTermination(t *testing.T) {
-	t.Parallel()
+	// t.Parallel()
 	s1 := NewSimple("TestTreeTermination1")
 	s2 := NewSimple("TestTreeTermination2")
 	s1.Add(s2)
@@ -792,6 +792,35 @@ func TestServiceAndTreeTermination(t *testing.T) {
 	if service1.running || service2.running || service3.running {
 		t.Fatal("Didn't shut services & tree down properly.")
 	}
+}
+
+func TestShim(t *testing.T) {
+	s := NewSimple("TEST: TestShim")
+	ctx, cancel := context.WithCancel(context.Background())
+	s.ServeBackground(ctx)
+
+	os := &OldService{
+		make(chan struct{}),
+		make(chan struct{}),
+		make(chan struct{}),
+		make(chan struct{}),
+	}
+	s.Add(AsService(os))
+
+	// Old service can return as normal and gets restarted; only the
+	// first one of these works if it doesn't get restarted.
+	os.doReturn <- struct{}{}
+	os.doReturn <- struct{}{}
+	// without this, the cancel command below can end up trying to stop
+	// this service at a bad time
+	os.sync <- struct{}{}
+
+	go func() {
+		cancel()
+	}()
+
+	// old-style service stops as expected.
+	<-os.stopping
 }
 
 // http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
@@ -914,6 +943,31 @@ func (s *FailableService) Serve(ctx context.Context) error {
 
 func (s *FailableService) String() string {
 	return s.name
+}
+
+type OldService struct {
+	done     chan struct{}
+	doReturn chan struct{}
+	stopping chan struct{}
+	sync     chan struct{}
+}
+
+func (os *OldService) Serve() {
+	for {
+		select {
+		case <-os.done:
+			return
+		case <-os.doReturn:
+			return
+		case <-os.sync:
+			// deliberately do nothing
+		}
+	}
+}
+
+func (os *OldService) Stop() {
+	close(os.done)
+	os.stopping <- struct{}{}
 }
 
 type NowFeeder struct {
