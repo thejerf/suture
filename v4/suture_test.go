@@ -328,8 +328,8 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 	cancel()
 	<-service.stop
 
-	if s.sendControl(syncSupervisor{}) {
-		t.Fatal("supervisor is shut down, should be returning fals for sendControl")
+	if s.sendControl(syncSupervisor{}) != ErrTimeout {
+		t.Fatal("supervisor is shut down, should be returning ErrTimeout for sendControl")
 	}
 	if s.Services() != nil {
 		t.Fatal("Non-running supervisor is returning services list")
@@ -708,6 +708,7 @@ func TestCoverage(t *testing.T) {
 		},
 		LogBackoff: func(s *Supervisor, entering bool) {},
 	})
+	NoJitter{}.Jitter(time.Millisecond)
 }
 
 func TestStopAfterRemoveAndWait(t *testing.T) {
@@ -745,6 +746,7 @@ func TestStopAfterRemoveAndWait(t *testing.T) {
 // This tests that the entire supervisor tree is terminated when a service
 // returns returns ErrTerminateTree directly.
 func TestServiceAndTreeTermination(t *testing.T) {
+	t.Parallel()
 	s1 := NewSimple("TestTreeTermination1")
 	s2 := NewSimple("TestTreeTermination2")
 	s1.Add(s2)
@@ -771,6 +773,25 @@ func TestServiceAndTreeTermination(t *testing.T) {
 	// OK, everything is up and running. Start by telling one service
 	// to terminate itself, and verify it isn't restarted.
 	service3.take <- DoNotRestart
+
+	// I've got nothing other than just waiting for a suitable period
+	// of time and hoping for the best here; it's hard to synchronize
+	// on an event not happening...!
+	time.Sleep(250 * time.Microsecond)
+	service3.m.Lock()
+	service3Running := service3.running
+	service3.m.Unlock()
+
+	if service3Running {
+		t.Fatal("service3 was restarted")
+	}
+
+	service1.take <- TerminateTree
+	<-terminated
+
+	if service1.running || service2.running || service3.running {
+		t.Fatal("Didn't shut services & tree down properly.")
+	}
 }
 
 // http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
@@ -820,7 +841,7 @@ func TestAddAfterStopping(t *testing.T) {
 // A test service that can be induced to fail, panic, or hang on demand.
 func NewService(name string) *FailableService {
 	return &FailableService{name, make(chan bool), make(chan int),
-		make(chan bool), make(chan bool, 1), 0}
+		make(chan bool), make(chan bool, 1), 0, sync.Mutex{}, false}
 }
 
 type FailableService struct {
@@ -830,6 +851,9 @@ type FailableService struct {
 	release  chan bool
 	stop     chan bool
 	existing int
+
+	m       sync.Mutex
+	running bool
 }
 
 func (s *FailableService) Serve(ctx context.Context) error {
@@ -838,6 +862,16 @@ func (s *FailableService) Serve(ctx context.Context) error {
 		panic("Multi-started the same service! " + s.name)
 	}
 	s.existing++
+
+	s.m.Lock()
+	s.running = true
+	s.m.Unlock()
+
+	defer func() {
+		s.m.Lock()
+		s.running = false
+		s.m.Unlock()
+	}()
 
 	s.started <- true
 

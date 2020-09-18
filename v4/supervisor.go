@@ -72,7 +72,8 @@ type Supervisor struct {
 	// holding this in a struct, I think due to the function of suture
 	// and the way it works, I think it's OK in this case. This is the
 	// exceptional case, basically.
-	ctx context.Context
+	ctxMutex sync.Mutex
+	ctx      context.Context
 	// This function cancels this supervisor specifically.
 	myCancel func()
 
@@ -173,6 +174,7 @@ func New(name string, spec Spec) *Supervisor {
 		// liveness
 		make(chan struct{}),
 
+		sync.Mutex{},
 		// ctx
 		nil,
 		// myCancel
@@ -307,7 +309,9 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 	// Take a separate cancellation function so this tree can be
 	// indepedently cancelled.
 	ctx, myCancel := context.WithCancel(ctx)
+	s.ctxMutex.Lock()
 	s.ctx = ctx
+	s.ctxMutex.Unlock()
 	s.myCancel = myCancel
 
 	if s.id == 0 {
@@ -643,12 +647,21 @@ func (s *Supervisor) String() string {
 // sendControl abstracts checking for the supervisor to still be running
 // when we send a message. This prevents blocking when sending to a
 // cancelled supervisor.
-func (s *Supervisor) sendControl(sm supervisorMessage) bool {
+func (s *Supervisor) sendControl(sm supervisorMessage) error {
+	var doneChan <-chan struct{}
+	s.ctxMutex.Lock()
+	if s.ctx == nil {
+		s.ctxMutex.Unlock()
+		return ErrSupervisorNotStarted
+	}
+	doneChan = s.ctx.Done()
+	s.ctxMutex.Unlock()
+
 	select {
 	case s.control <- sm:
-		return true
-	case <-s.ctx.Done():
-		return false
+		return nil
+	case <-doneChan:
+		return ErrTimeout
 	}
 }
 
@@ -662,9 +675,12 @@ func (s *Supervisor) Remove(id ServiceToken) error {
 	if sID != s.id {
 		return ErrWrongSupervisor
 	}
-	// no meaningful error handling if this is false
-	_ = s.sendControl(removeService{serviceID(id.id & 0xffffffff), nil})
-	return nil
+	err := s.sendControl(removeService{serviceID(id.id & 0xffffffff), nil})
+	if err == ErrTimeout {
+		// No meaningful error handling if the supervisor is stopped.
+		return nil
+	}
+	return err
 }
 
 /*
@@ -693,10 +709,10 @@ func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error
 
 	notificationC := make(chan struct{})
 
-	sentControl := s.sendControl(removeService{serviceID(id.id & 0xffffffff), notificationC})
+	sentControlErr := s.sendControl(removeService{serviceID(id.id & 0xffffffff), notificationC})
 
-	if !sentControl {
-		return ErrTimeout
+	if sentControlErr != nil {
+		return sentControlErr
 	}
 
 	select {
@@ -725,7 +741,7 @@ Supervisor is managing.
 func (s *Supervisor) Services() []Service {
 	ls := listServices{make(chan []Service)}
 
-	if s.sendControl(ls) {
+	if s.sendControl(ls) == nil {
 		return <-ls.c
 	}
 	return nil
@@ -830,6 +846,11 @@ var ErrTimeout = errors.New("waiting for service to stop has timed out")
 // ErrSupervisorNotTerminated is returned when asking for a stopped service
 // report before the supervisor has been terminated.
 var ErrSupervisorNotTerminated = errors.New("supervisor not terminated")
+
+// ErrSupervisorNotStarted is returned if you try to send control messages
+// to a supervisor that has not started yet. See note on Supervisor struct
+// about the legal ways to start a supervisor.
+var ErrSupervisorNotStarted = errors.New("supervisor not started yet")
 
 // Spec is used to pass arguments to the New function to create a
 // supervisor. See the New function for full documentation.
