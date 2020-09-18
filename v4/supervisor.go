@@ -235,8 +235,9 @@ func (s *Supervisor) GetSupervisor() *Supervisor {
 Add adds a service to this supervisor.
 
 If the supervisor is currently running, the service will be started
-immediately. If the supervisor is not currently running, the service
-will be started when the supervisor is.
+immediately. If the supervisor has not been started yet, the service
+will be started when the supervisor is. If the supervisor was already stopped,
+this is a no-op returning an empty service-token.
 
 The returned ServiceID may be passed to the Remove method of the Supervisor
 to terminate the service.
@@ -276,7 +277,9 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	s.m.Unlock()
 
 	response := make(chan serviceID)
-	s.control <- addService{service, serviceName(service), response}
+	if !s.sendControl(addService{service, serviceName(service), response}) {
+		return ServiceToken{}
+	}
 	return ServiceToken{uint64(s.id)<<32 | uint64(<-response)}
 }
 
