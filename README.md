@@ -3,11 +3,10 @@ Suture
 
 [![Build Status](https://travis-ci.org/thejerf/suture.png?branch=master)](https://travis-ci.org/thejerf/suture)
 
+    import "gopkg.in/thejerf/suture.v4"
+
 Suture provides Erlang-ish supervisor trees for Go. "Supervisor trees" ->
 "sutree" -> "suture" -> holds your code together when it's trying to die.
-
-This library has hit maturity, and isn't expected to be changed
-radically. This can also be imported via gopkg.in/thejerf/suture.v2 .
 
 It is intended to deal gracefully with the real failure cases that can
 occur with supervision trees (such as burning all your CPU time endlessly
@@ -22,6 +21,23 @@ This module is fairly fully covered
 with [godoc](http://godoc.org/github.com/thejerf/suture),
 including an example, usage, and everything else you might expect from a
 README.md on GitHub. (DRY.)
+
+Special Thanks
+--------------
+
+Special thanks to the [Syncthing team](https://syncthing.net/), who have
+been fantastic about working with me to push fixes upstream of them.
+
+Major Versions
+--------------
+
+v4 is a rewrite to make Suture function
+with [contexts](https://golang.org/pkg/context/). If you are using suture
+for the first time, I recommend it.
+
+[suture v3](https://godoc.org/gopkg.in/thejerf/suture.v3{ is the latest
+version that does not feature contexts. It is still supported and getting
+backported fixes as of now.
 
 Code Signing
 ------------
@@ -47,21 +63,25 @@ without explicitly depending on the Suture library.
 Changelog
 ---------
 
-suture uses semantic versioning.
+suture uses semantic versioning and go modules.
 
 * 4.0:
   * Switched the entire API to be context based.
   * Consequently, "Stop" removed from the Service interface. A wrapper for
     old-style code is provided.
-  * Services can now return errors. Two special errors control restarting
-    behavior:
+  * Services can now return errors. Errors will be included in the log
+    message. Two special errors control restarting behavior:
       * ErrDoNotRestart indicates the service should not be restarted,
         but other services should be unaffected.
       * ErrTerminateTree indicates the parent service tree should be
-        terminated.
+        terminated. Supervisor trees can be configured to either continue
+        terminating upwards, or terminate themselves but not continue
+        propagating the termination upwards.
   * UnstoppedServiceReport calling semantics modified to allow correctly
     retrieving reports from entire trees. (Prior to 4.0, a report was
     only on the supervisor it was called on.)
+* 3.0.4:
+  * Fix a problem with adding services to a stopped supervisor.
 * 3.0.3:
   * Implemented request in Issue #37, creating a new method StopWithReport
     on supervisors that reports what services failed to stop. While a bit

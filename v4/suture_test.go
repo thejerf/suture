@@ -794,6 +794,42 @@ func TestServiceAndTreeTermination(t *testing.T) {
 	}
 }
 
+// Test that supervisors set to not propagate service failures upwards will
+// not kill the whole tree.
+func TestDoNotPropagate(t *testing.T) {
+	s1 := NewSimple("TestDoNotPropagate")
+	s2 := New("TestDoNotPropgate Subtree", Spec{DontPropagateTermination: true})
+
+	s1.Add(s2)
+
+	service1 := NewService("should keep running")
+	service2 := NewService("should end up terminating")
+	s1.Add(service1)
+	s2.Add(service2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go s1.Serve(ctx)
+	defer cancel()
+
+	<-service1.started
+	<-service2.started
+
+	fmt.Println("Service about to take")
+	service2.take <- TerminateTree
+	fmt.Println("Service took")
+	time.Sleep(time.Millisecond)
+
+	if service2.running {
+		t.Fatal("service 2 should have terminated")
+	}
+	if s2.state != terminated {
+		t.Fatal("child supervisor should be terminated")
+	}
+	if s1.state != normal {
+		t.Fatal("parent supervisor should be running")
+	}
+}
+
 func TestShim(t *testing.T) {
 	s := NewSimple("TEST: TestShim")
 	ctx, cancel := context.WithCancel(context.Background())

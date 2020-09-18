@@ -136,10 +136,10 @@ Timeout is how long Suture will wait for a service to properly terminate.
 The PassThroughPanics options can be set to let panics in services propagate
 and crash the program, should this be desirable.
 
-PropagateTermination indicates whether this supervisor tree will
-propagate a ErrTerminateTree if a child process returns it. If true,
+DontPropagateTermination indicates whether this supervisor tree will
+propagate a ErrTerminateTree if a child process returns it. If false,
 this supervisor will itself return an error that will terminate its
-parent. If false, it will merely return ErrDoNotRestart.
+parent. If true, it will merely return ErrDoNotRestart. false by default.
 
 */
 func New(name string, spec Spec) *Supervisor {
@@ -361,7 +361,11 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 						go cancel()
 					} else if isErr(msg.err, ErrTerminateSupervisorTree) {
 						s.stopSupervisor()
-						return msg.err
+						if s.spec.DontPropagateTermination {
+							return ErrDoNotRestart
+						} else {
+							return msg.err
+						}
 					} else {
 						s.handleFailedService(ctx, msg.id, msg.err, nil)
 					}
@@ -855,17 +859,17 @@ var ErrSupervisorNotStarted = errors.New("supervisor not started yet")
 // Spec is used to pass arguments to the New function to create a
 // supervisor. See the New function for full documentation.
 type Spec struct {
-	Log                  func(string)
-	FailureDecay         float64
-	FailureThreshold     float64
-	FailureBackoff       time.Duration
-	BackoffJitter        Jitter
-	Timeout              time.Duration
-	LogBadStop           BadStopLogger
-	LogFailure           FailureLogger
-	LogBackoff           BackoffLogger
-	PassThroughPanics    bool
-	PropagateTermination bool
+	Log                      func(string)
+	FailureDecay             float64
+	FailureThreshold         float64
+	FailureBackoff           time.Duration
+	BackoffJitter            Jitter
+	Timeout                  time.Duration
+	LogBadStop               BadStopLogger
+	LogFailure               FailureLogger
+	LogBackoff               BackoffLogger
+	PassThroughPanics        bool
+	DontPropagateTermination bool
 }
 
 func (s *Spec) configureDefaults(supervisorName string) {
