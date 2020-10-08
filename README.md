@@ -35,7 +35,7 @@ v4 is a rewrite to make Suture function
 with [contexts](https://golang.org/pkg/context/). If you are using suture
 for the first time, I recommend it.
 
-[suture v3](https://godoc.org/gopkg.in/thejerf/suture.v3{ is the latest
+[suture v3](https://godoc.org/gopkg.in/thejerf/suture.v3) is the latest
 version that does not feature contexts. It is still supported and getting
 backported fixes as of now.
 

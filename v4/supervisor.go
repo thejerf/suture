@@ -27,6 +27,11 @@ const (
 type supervisorID uint32
 type serviceID uint32
 
+// ErrSupervisorNotRunning is returned by some methods if the supervisor is
+// not running, either because it has not been started or because it has
+// been terminated.
+var ErrSupervisorNotRunning = errors.New("supervisor not running")
+
 /*
 Supervisor is the core type of the module that represents a Supervisor.
 
@@ -75,7 +80,7 @@ type Supervisor struct {
 	ctxMutex sync.Mutex
 	ctx      context.Context
 	// This function cancels this supervisor specifically.
-	myCancel func()
+	ctxCancel func()
 
 	getNow       func() time.Time
 	getAfterChan func(time.Duration) <-chan time.Time
@@ -223,7 +228,7 @@ func NewSimple(name string) *Supervisor {
 // participate in the log function propagation and recursive
 // UnstoppedService report.
 //
-// It is legal for GetSupervisor to potentiall return nil, in which case
+// It is legal for GetSupervisor to return nil, in which case
 // the supervisor-specific behaviors will simply be ignored.
 type HasSupervisor interface {
 	GetSupervisor() *Supervisor
@@ -279,7 +284,7 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	s.m.Unlock()
 
 	response := make(chan serviceID)
-	if !s.sendControl(addService{service, serviceName(service), response}) {
+	if s.sendControl(addService{service, serviceName(service), response}) != nil {
 		return ServiceToken{}
 	}
 	return ServiceToken{uint64(s.id)<<32 | uint64(<-response)}
@@ -312,7 +317,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 	s.ctxMutex.Lock()
 	s.ctx = ctx
 	s.ctxMutex.Unlock()
-	s.myCancel = myCancel
+	s.ctxCancel = myCancel
 
 	if s.id == 0 {
 		panic("Can't call Serve on an incorrectly-constructed *suture.Supervisor")
@@ -619,7 +624,7 @@ SHUTTING_DOWN_SERVICES:
 	}
 
 	// If nothing else has cancelled our context, we should now.
-	s.myCancel()
+	s.ctxCancel()
 
 	// Indicate that we're done shutting down
 	defer close(s.liveness)
@@ -665,7 +670,7 @@ func (s *Supervisor) sendControl(sm supervisorMessage) error {
 	case s.control <- sm:
 		return nil
 	case <-doneChan:
-		return ErrTimeout
+		return ErrSupervisorNotRunning
 	}
 }
 
@@ -680,7 +685,7 @@ func (s *Supervisor) Remove(id ServiceToken) error {
 		return ErrWrongSupervisor
 	}
 	err := s.sendControl(removeService{serviceID(id.id & 0xffffffff), nil})
-	if err == ErrTimeout {
+	if err == ErrSupervisorNotRunning {
 		// No meaningful error handling if the supervisor is stopped.
 		return nil
 	}
@@ -694,7 +699,7 @@ terminate. A timeout value of 0 means to wait forever.
 
 If a nil error is returned from this function, then the service was
 terminated normally. If either the supervisor terminates or the timeout
-passes, ErrTimeout is returned. (If this isn't even the right supervisor
+passes, Err is returned. (If this isn't even the right supervisor
 ErrWrongSupervisor is returned.)
 */
 func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error {

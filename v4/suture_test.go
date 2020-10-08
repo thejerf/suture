@@ -328,8 +328,8 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 	cancel()
 	<-service.stop
 
-	if s.sendControl(syncSupervisor{}) != ErrTimeout {
-		t.Fatal("supervisor is shut down, should be returning ErrTimeout for sendControl")
+	if s.sendControl(syncSupervisor{}) != ErrSupervisorNotRunning {
+		t.Fatal("supervisor is shut down, should be returning ErrSupervisorNotRunning for sendControl")
 	}
 	if s.Services() != nil {
 		t.Fatal("Non-running supervisor is returning services list")
@@ -575,7 +575,7 @@ func TestPassNoContextToSupervisor(t *testing.T) {
 	go s.Serve(nil)
 	<-service.started
 
-	s.myCancel()
+	s.ctxCancel()
 }
 
 func TestNilSupervisorPanicsAsExpected(t *testing.T) {
@@ -651,7 +651,7 @@ func TestRemoveAndWait(t *testing.T) {
 	cancel()
 	err = s.RemoveAndWait(token, 10*time.Millisecond)
 
-	if err != ErrTimeout {
+	if err != ErrSupervisorNotRunning {
 		t.Fatal("Unexpected result for RemoveAndWait on a stopped service: " + err.Error())
 	}
 
