@@ -2,7 +2,6 @@ package suture
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -84,7 +83,7 @@ func TestFailures(t *testing.T) {
 		// to avoid deadlocks during shutdown, we have to not try to send
 		// things out on channels while we're shutting down (this undoes the
 		// LogFailure overide about 25 lines down)
-		s.spec.LogFailure = func(*Supervisor, Service, string, float64, float64, bool, interface{}, []byte) {}
+		s.spec.EventHook = func(Event) {}
 		cancel()
 	}()
 	s.sync()
@@ -109,8 +108,13 @@ func TestFailures(t *testing.T) {
 
 	failNotify := make(chan bool)
 	// use this to synchronize on here
-	s.spec.LogFailure = func(supervisor *Supervisor, s Service, sn string, cf float64, ft float64, r bool, error interface{}, stacktrace []byte) {
-		failNotify <- r
+	s.spec.EventHook = func(e Event) {
+		switch e.Type() {
+		case EventTypeServiceTerminate:
+			failNotify <- e.(ServiceTerminateEvent).Restarting
+		case EventTypeServicePanic:
+			failNotify <- e.(ServicePanicEvent).Restarting
+		}
 	}
 
 	// All that setup was for this: Service1, please return now.
@@ -160,8 +164,15 @@ func TestFailures(t *testing.T) {
 
 	nowFeeder.appendTimes(oneDecayLater)
 	backingoff := make(chan bool)
-	s.spec.LogBackoff = func(s *Supervisor, backingOff bool) {
-		backingoff <- backingOff
+	s.spec.EventHook = func(e Event) {
+		switch e.Type() {
+		case EventTypeServiceTerminate:
+			failNotify <- e.(ServiceTerminateEvent).Restarting
+		case EventTypeBackoff:
+			backingoff <- true
+		case EventTypeResume:
+			backingoff <- false
+		}
 	}
 
 	// And with this failure, we trigger the backoff code.
@@ -170,7 +181,7 @@ func TestFailures(t *testing.T) {
 	restarted = <-failNotify
 
 	if !backoff || restarted || s.failures != 4 {
-		t.Fatal("Broke past the threshold but did not log correctly", s.failures)
+		t.Fatal("Broke past the threshold but did not log correctly", s.failures, backoff, restarted)
 	}
 	if service1.existing != 0 {
 		t.Fatal("service1 still exists according to itself?")
@@ -231,7 +242,7 @@ func TestFullConstruction(t *testing.T) {
 	// t.Parallel()
 
 	s := New("Moo", Spec{
-		Log:              func(string) {},
+		EventHook:        func(Event) {},
 		FailureDecay:     1,
 		FailureThreshold: 2,
 		FailureBackoff:   3,
@@ -273,10 +284,16 @@ func TestDefaultLogging(t *testing.T) {
 
 	service.take <- Happy
 
-	name := serviceName(&BarelyService{})
-
-	s.spec.LogBadStop(s, service, name)
-	s.spec.LogFailure(s, service, name, 1, 1, true, errors.New("test error"), []byte{})
+	s.spec.EventHook(StopTimeoutEvent{s.Name, service.name})
+	s.spec.EventHook(ServicePanicEvent{
+		Supervisor:       s.Name,
+		Service:          service.name,
+		CurrentFailures:  1,
+		FailureThreshold: 1,
+		Restarting:       true,
+		PanicMsg:         "test error",
+		Stacktrace:       "",
+	})
 
 	cancel()
 }
@@ -288,8 +305,10 @@ func TestNestedSupervisors(t *testing.T) {
 	super2 := NewSimple("Nested5")
 	service := NewService("Service5")
 
-	super2.spec.LogBadStop = func(*Supervisor, Service, string) {
-		panic("Failed to copy LogBadStop")
+	super2.spec.EventHook = func(e Event) {
+		if e.Type() == EventTypeStopTimeout {
+			panic("Failed to copy LogBadStop")
+		}
 	}
 
 	super1.Add(super2)
@@ -297,7 +316,7 @@ func TestNestedSupervisors(t *testing.T) {
 
 	// test the functions got copied from super1; if this panics, it didn't
 	// get copied
-	super2.spec.LogBadStop(super2, service, "Service5")
+	super2.spec.EventHook(StopTimeoutEvent{super2.Name, service.name})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go super1.Serve(ctx)
@@ -358,8 +377,10 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 		return resumeChan
 	}
 	failNotify := make(chan struct{})
-	s.spec.LogBadStop = func(supervisor *Supervisor, s Service, name string) {
-		failNotify <- struct{}{}
+	s.spec.EventHook = func(e Event) {
+		if e.Type() == EventTypeStopTimeout {
+			failNotify <- struct{}{}
+		}
 	}
 
 	// stop the supervisor, then immediately call time on it
@@ -382,8 +403,10 @@ func TestRemovingHungService(t *testing.T) {
 	s.getAfterChan = func(d time.Duration) <-chan time.Time {
 		return resumeChan
 	}
-	s.spec.LogBadStop = func(supervisor *Supervisor, s Service, name string) {
-		failNotify <- struct{}{}
+	s.spec.EventHook = func(e Event) {
+		if e.Type() == EventTypeStopTimeout {
+			failNotify <- struct{}{}
+		}
 	}
 	service := NewService("Service WillHang")
 
@@ -524,8 +547,10 @@ func TestFailingSupervisors(t *testing.T) {
 	}
 	failNotify := make(chan string)
 	// synchronize on the expected failure of the middle supervisor
-	s1.spec.LogFailure = func(supervisor *Supervisor, s Service, name string, cf float64, ft float64, r bool, error interface{}, stacktrace []byte) {
-		failNotify <- fmt.Sprintf("%s", s)
+	s1.spec.EventHook = func(e Event) {
+		if e.Type() == EventTypeServicePanic {
+			failNotify <- fmt.Sprintf("%s", e.(ServicePanicEvent).Service)
+		}
 	}
 
 	// Now, the middle supervisor panics and dies.
@@ -694,19 +719,7 @@ func TestSupervisorManagementIssue35(t *testing.T) {
 
 func TestCoverage(t *testing.T) {
 	New("testing coverage", Spec{
-		LogBadStop: func(*Supervisor, Service, string) {},
-		LogFailure: func(
-			supervisor *Supervisor,
-			service Service,
-			serviceName string,
-			currentFailures float64,
-			failureThreshold float64,
-			restarting bool,
-			error interface{},
-			stacktrace []byte,
-		) {
-		},
-		LogBackoff: func(s *Supervisor, entering bool) {},
+		EventHook: func(Event) {},
 	})
 	NoJitter{}.Jitter(time.Millisecond)
 }
@@ -718,9 +731,13 @@ func TestStopAfterRemoveAndWait(t *testing.T) {
 
 	s := NewSimple("main")
 	s.spec.Timeout = time.Second
-	s.spec.LogBadStop = func(sup *Supervisor, _ Service, name string) {
-		badStopError = fmt.Errorf("%s: Service %s failed to terminate in a timely manner", sup.Name, name)
+	s.spec.EventHook = func(e Event) {
+		if e.Type() == EventTypeStopTimeout {
+			ev := e.(StopTimeoutEvent)
+			badStopError = fmt.Errorf("%s: Service %s failed to terminate in a timely manner", ev.Supervisor, ev.Service)
+		}
 	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s.ServeBackground(ctx)
 

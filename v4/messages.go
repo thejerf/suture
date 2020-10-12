@@ -29,13 +29,13 @@ type syncSupervisor struct {
 
 func (ss syncSupervisor) isSupervisorMessage() {}
 
-func (s *Supervisor) fail(id serviceID, err interface{}, stacktrace []byte) {
-	s.control <- serviceFailed{id, err, stacktrace}
+func (s *Supervisor) fail(id serviceID, panicMsg string, stacktrace []byte) {
+	s.control <- serviceFailed{id, panicMsg, stacktrace}
 }
 
 type serviceFailed struct {
 	id         serviceID
-	err        interface{}
+	panicMsg   string
 	stacktrace []byte
 }
 
