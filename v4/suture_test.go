@@ -111,9 +111,9 @@ func TestFailures(t *testing.T) {
 	s.spec.EventHook = func(e Event) {
 		switch e.Type() {
 		case EventTypeServiceTerminate:
-			failNotify <- e.(ServiceTerminateEvent).Restarting
+			failNotify <- e.(EventServiceTerminate).Restarting
 		case EventTypeServicePanic:
-			failNotify <- e.(ServicePanicEvent).Restarting
+			failNotify <- e.(EventServicePanic).Restarting
 		}
 	}
 
@@ -167,7 +167,7 @@ func TestFailures(t *testing.T) {
 	s.spec.EventHook = func(e Event) {
 		switch e.Type() {
 		case EventTypeServiceTerminate:
-			failNotify <- e.(ServiceTerminateEvent).Restarting
+			failNotify <- e.(EventServiceTerminate).Restarting
 		case EventTypeBackoff:
 			backingoff <- true
 		case EventTypeResume:
@@ -284,10 +284,10 @@ func TestDefaultLogging(t *testing.T) {
 
 	service.take <- Happy
 
-	s.spec.EventHook(StopTimeoutEvent{s.Name, service.name})
-	s.spec.EventHook(ServicePanicEvent{
-		Supervisor:       s.Name,
-		Service:          service.name,
+	s.spec.EventHook(EventStopTimeout{s, s.Name, service, service.name})
+	s.spec.EventHook(EventServicePanic{
+		SupervisorName:   s.Name,
+		ServiceName:      service.name,
 		CurrentFailures:  1,
 		FailureThreshold: 1,
 		Restarting:       true,
@@ -316,7 +316,10 @@ func TestNestedSupervisors(t *testing.T) {
 
 	// test the functions got copied from super1; if this panics, it didn't
 	// get copied
-	super2.spec.EventHook(StopTimeoutEvent{super2.Name, service.name})
+	super2.spec.EventHook(EventStopTimeout{
+		super2, super2.Name,
+		service, service.name,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go super1.Serve(ctx)
@@ -549,7 +552,7 @@ func TestFailingSupervisors(t *testing.T) {
 	// synchronize on the expected failure of the middle supervisor
 	s1.spec.EventHook = func(e Event) {
 		if e.Type() == EventTypeServicePanic {
-			failNotify <- fmt.Sprintf("%s", e.(ServicePanicEvent).Service)
+			failNotify <- fmt.Sprintf("%s", e.(EventServicePanic).Service)
 		}
 	}
 
@@ -733,7 +736,7 @@ func TestStopAfterRemoveAndWait(t *testing.T) {
 	s.spec.Timeout = time.Second
 	s.spec.EventHook = func(e Event) {
 		if e.Type() == EventTypeStopTimeout {
-			ev := e.(StopTimeoutEvent)
+			ev := e.(EventStopTimeout)
 			badStopError = fmt.Errorf("%s: Service %s failed to terminate in a timely manner", ev.Supervisor, ev.Service)
 		}
 	}

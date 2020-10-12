@@ -4,13 +4,19 @@ import (
 	"fmt"
 )
 
+// Event defines the interface implemented by all events Suture will
+// generate.
+//
+// Map will return a map with the details of the event serialized into a
+// map[string]interface{}, with only the values suitable for serialization.
+type Event interface {
+	fmt.Stringer
+	Type() EventType
+	Map() map[string]interface{}
+}
+
 type (
 	EventType int
-
-	Event interface {
-		fmt.Stringer
-		Type() EventType
-	}
 
 	EventHook func(Event)
 )
@@ -23,24 +29,18 @@ const (
 	EventTypeResume
 )
 
-type ServiceFailureEvent struct {
-	Supervisor       string
-	Service          string
-	CurrentFailures  float64
-	FailureThreshold float64
-	Restarting       bool
+type EventStopTimeout struct {
+	Supervisor     *Supervisor `json:"-"`
+	SupervisorName string      `json:"supervisor_name"`
+	Service        Service     `json:"-"`
+	ServiceName    string      `json:"service"`
 }
 
-type StopTimeoutEvent struct {
-	Supervisor string
-	Service    string
-}
-
-func (e StopTimeoutEvent) Type() EventType {
+func (e EventStopTimeout) Type() EventType {
 	return EventTypeStopTimeout
 }
 
-func (e StopTimeoutEvent) String() string {
+func (e EventStopTimeout) String() string {
 	return fmt.Sprintf(
 		"%s: Service %s failed to terminate in a timely manner",
 		e.Supervisor,
@@ -48,58 +48,87 @@ func (e StopTimeoutEvent) String() string {
 	)
 }
 
-type ServicePanicEvent struct {
-	Supervisor       string
-	Service          string
-	CurrentFailures  float64
-	FailureThreshold float64
-	Restarting       bool
-	PanicMsg         string
-	Stacktrace       string
+func (e EventStopTimeout) Map() map[string]interface{} {
+	return map[string]interface{}{
+		"supervisor_name": e.SupervisorName,
+		"service_name":    e.ServiceName,
+	}
 }
 
-func (e ServiceFailureEvent) String() string {
-	return fmt.Sprintf(
-		"%s: Failed service '%s' (%f failures of %f), restarting: %#v",
-		e.Supervisor,
-		e.Service,
-		e.CurrentFailures,
-		e.FailureThreshold,
-		e.Restarting,
-	)
+type EventServicePanic struct {
+	Supervisor       *Supervisor `json:"-"`
+	SupervisorName   string      `json:"supervisor_name"`
+	Service          Service     `json:"-"`
+	ServiceName      string      `json:"service_name"`
+	CurrentFailures  float64     `json:"current_failures"`
+	FailureThreshold float64     `json:"failure_threshold"`
+	Restarting       bool        `json:"restarting"`
+	PanicMsg         string      `json:"panic_msg"`
+	Stacktrace       string      `json:"stacktrace"`
 }
 
-func (e ServicePanicEvent) Type() EventType {
+func (e EventServicePanic) Type() EventType {
 	return EventTypeServicePanic
 }
 
-func (e ServicePanicEvent) String() string {
+func (e EventServicePanic) String() string {
 	return fmt.Sprintf(
 		"%s, panic: %s, stacktrace: %s",
-		serviceFailureString(e.Supervisor, e.Service, e.CurrentFailures, e.FailureThreshold, e.Restarting),
+		serviceFailureString(
+			e.SupervisorName,
+			e.ServiceName,
+			e.CurrentFailures,
+			e.FailureThreshold,
+			e.Restarting,
+		),
 		e.PanicMsg,
 		string(e.Stacktrace),
 	)
 }
 
-type ServiceTerminateEvent struct {
-	Supervisor       string
-	Service          string
-	CurrentFailures  float64
-	FailureThreshold float64
-	Restarting       bool
-	Err              error
+func (e EventServicePanic) Map() map[string]interface{} {
+	return map[string]interface{}{
+		"supervisor_name":   e.SupervisorName,
+		"service_name":      e.ServiceName,
+		"current_failures":  e.CurrentFailures,
+		"failure_threshold": e.FailureThreshold,
+		"restarting":        e.Restarting,
+		"panic_msg":         e.PanicMsg,
+		"stacktrace":        e.Stacktrace,
+	}
 }
 
-func (e ServiceTerminateEvent) Type() EventType {
+type EventServiceTerminate struct {
+	Supervisor       *Supervisor `json:"-"`
+	SupervisorName   string      `json:"supervisor_name"`
+	Service          Service     `json:"-"`
+	ServiceName      string      `json:"service_name"`
+	CurrentFailures  float64     `json:"current_failures"`
+	FailureThreshold float64     `json:"failure_threshold"`
+	Restarting       bool        `json:"restarting"`
+	Err              interface{} `json:"error_msg"`
+}
+
+func (e EventServiceTerminate) Type() EventType {
 	return EventTypeServiceTerminate
 }
 
-func (e ServiceTerminateEvent) String() string {
+func (e EventServiceTerminate) String() string {
 	return fmt.Sprintf(
 		"%s, error: %s",
-		serviceFailureString(e.Supervisor, e.Service, e.CurrentFailures, e.FailureThreshold, e.Restarting),
+		serviceFailureString(e.SupervisorName, e.ServiceName, e.CurrentFailures, e.FailureThreshold, e.Restarting),
 		e.Err)
+}
+
+func (e EventServiceTerminate) Map() map[string]interface{} {
+	return map[string]interface{}{
+		"supervisor_name":   e.SupervisorName,
+		"service_name":      e.ServiceName,
+		"current_failures":  e.CurrentFailures,
+		"failure_threshold": e.FailureThreshold,
+		"restarting":        e.Restarting,
+		"error":             e.Err,
+	}
 }
 
 func serviceFailureString(supervisor, service string, currentFailures, failureThreshold float64, restarting bool) string {
@@ -113,26 +142,40 @@ func serviceFailureString(supervisor, service string, currentFailures, failureTh
 	)
 }
 
-type BackoffEvent struct {
-	Supervisor string
+type EventBackoff struct {
+	Supervisor     *Supervisor `json:"-"`
+	SupervisorName string      `json:"supervisor_name"`
 }
 
-func (e BackoffEvent) Type() EventType {
+func (e EventBackoff) Type() EventType {
 	return EventTypeBackoff
 }
 
-func (e BackoffEvent) String() string {
+func (e EventBackoff) String() string {
 	return fmt.Sprintf("%s: Entering the backoff state.", e.Supervisor)
 }
 
-type ResumeEvent struct {
-	Supervisor string
+func (e EventBackoff) Map() map[string]interface{} {
+	return map[string]interface{}{
+		"supervisor_name": e.SupervisorName,
+	}
 }
 
-func (e ResumeEvent) Type() EventType {
+type EventResume struct {
+	Supervisor     *Supervisor `json:"-"`
+	SupervisorName string      `json:"supervisor_name"`
+}
+
+func (e EventResume) Type() EventType {
 	return EventTypeResume
 }
 
-func (e ResumeEvent) String() string {
+func (e EventResume) String() string {
 	return fmt.Sprintf("%s: Exiting backoff state.", e.Supervisor)
+}
+
+func (e EventResume) Map() map[string]interface{} {
+	return map[string]interface{}{
+		"supervisor_name": e.SupervisorName,
+	}
 }

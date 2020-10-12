@@ -410,7 +410,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 			s.state = normal
 			s.m.Unlock()
 			s.failures = 0
-			s.spec.EventHook(ResumeEvent{s.Name})
+			s.spec.EventHook(EventResume{s, s.Name})
 			for _, id := range s.restartQueue {
 				namedService, present := s.services[id]
 				if present {
@@ -473,7 +473,7 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 		s.m.Lock()
 		s.state = paused
 		s.m.Unlock()
-		s.spec.EventHook(BackoffEvent{s.Name})
+		s.spec.EventHook(EventBackoff{s, s.Name})
 		s.resumeTimer = s.getAfterChan(
 			s.spec.BackoffJitter.Jitter(s.spec.FailureBackoff))
 	}
@@ -494,9 +494,11 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 			s.restartQueue = append(s.restartQueue, id)
 		}
 		if panic {
-			s.spec.EventHook(ServicePanicEvent{
-				Supervisor:       s.Name,
-				Service:          failedService.name,
+			s.spec.EventHook(EventServicePanic{
+				Supervisor:       s,
+				SupervisorName:   s.Name,
+				Service:          failedService.Service,
+				ServiceName:      failedService.name,
 				CurrentFailures:  s.failures,
 				FailureThreshold: s.spec.FailureThreshold,
 				Restarting:       curState == normal,
@@ -504,15 +506,17 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 				Stacktrace:       string(stacktrace),
 			})
 		} else {
-			e := ServiceTerminateEvent{
-				Supervisor:       s.Name,
-				Service:          failedService.name,
+			e := EventServiceTerminate{
+				Supervisor:       s,
+				SupervisorName:   s.Name,
+				Service:          failedService.Service,
+				ServiceName:      failedService.name,
 				CurrentFailures:  s.failures,
 				FailureThreshold: s.spec.FailureThreshold,
 				Restarting:       curState == normal,
 			}
 			if err != nil {
-				e.Err = err.(error)
+				e.Err = err
 			}
 			s.spec.EventHook(e)
 		}
@@ -569,7 +573,9 @@ func (s *Supervisor) removeService(id serviceID, notificationChan chan struct{})
 			case <-successChan:
 				// Life is good!
 			case <-s.getAfterChan(s.spec.Timeout):
-				s.spec.EventHook(StopTimeoutEvent{s.Name, namedService.name})
+				s.spec.EventHook(EventStopTimeout{
+					s, s.Name,
+					namedService.Service, namedService.name})
 			}
 			s.notifyServiceDone <- id
 		}()
@@ -605,7 +611,10 @@ SHUTTING_DOWN_SERVICES:
 			delete(s.servicesShuttingDown, serviceID)
 		case <-timeout:
 			for _, namedService := range s.servicesShuttingDown {
-				s.spec.EventHook(StopTimeoutEvent{s.Name, namedService.name})
+				s.spec.EventHook(EventStopTimeout{
+					s, s.Name,
+					namedService.Service, namedService.name,
+				})
 			}
 
 			// failed remove statements will log the errors.
