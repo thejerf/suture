@@ -698,7 +698,7 @@ terminate. A timeout value of 0 means to wait forever.
 
 If a nil error is returned from this function, then the service was
 terminated normally. If either the supervisor terminates or the timeout
-passes, Err is returned. (If this isn't even the right supervisor
+passes, ErrTimeout is returned. (If this isn't even the right supervisor
 ErrWrongSupervisor is returned.)
 */
 func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error {
