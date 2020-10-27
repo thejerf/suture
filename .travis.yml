@@ -6,4 +6,6 @@ go:
   - 1.9
   - 1.11
   - 1.13
+  - 1.15
   - tip
+script: go test -timeout 20s ${gobuild_args} ./...
