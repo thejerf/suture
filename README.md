@@ -33,7 +33,9 @@ Major Versions
 
 v4 is a rewrite to make Suture function
 with [contexts](https://golang.org/pkg/context/). If you are using suture
-for the first time, I recommend it.
+for the first time, I recommend it. It also changes how logging works, to
+get a single function from the user that is presented with a defined set of
+structs, rather than requiring a number of closures from the consumer.
 
 [suture v3](https://godoc.org/gopkg.in/thejerf/suture.v3) is the latest
 version that does not feature contexts. It is still supported and getting
@@ -67,6 +69,9 @@ suture uses semantic versioning and go modules.
 
 * 4.0:
   * Switched the entire API to be context based.
+  * Switched how logging works to take a single closure that will be
+    presented with a defined set of structs, rather than a set of closures
+    for each event.
   * Consequently, "Stop" removed from the Service interface. A wrapper for
     old-style code is provided.
   * Services can now return errors. Errors will be included in the log
