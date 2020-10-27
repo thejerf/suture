@@ -408,7 +408,6 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	s.Unlock()
 
 	response := make(chan serviceID)
-	s.control <- addService{service, serviceName(service), response}
 	if !s.sendControl(addService{service, serviceName(service), response}) {
 		return ServiceToken{}
 	}
