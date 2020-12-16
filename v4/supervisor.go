@@ -105,14 +105,14 @@ does not care if this is unique, but it is good for your sanity if it is.
 
 If not set, the following values are used:
 
- * Log:               A function is created that uses log.Print.
+ * EventHook:         A function is created that uses log.Print.
  * FailureDecay:      30 seconds
  * FailureThreshold:  5 failures
  * FailureBackoff:    15 seconds
  * Timeout:           10 seconds
  * BackoffJitter:     DefaultJitter
 
-The Log function will be called when errors occur. Suture will log the
+The EventHook function will be called when errors occur. Suture will log the
 following:
 
  * When a service has failed, with a descriptive message about the
@@ -250,7 +250,7 @@ The returned ServiceID may be passed to the Remove method of the Supervisor
 to terminate the service.
 
 As a special behavior, if the service added is itself a supervisor, the
-supervisor being added will copy the Log function from the Supervisor it
+supervisor being added will copy the EventHook function from the Supervisor it
 is being added to. This allows factoring out providing a Supervisor
 from its logging. This unconditionally overwrites the child Supervisor's
 logging functions.
