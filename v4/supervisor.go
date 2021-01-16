@@ -72,6 +72,7 @@ type Supervisor struct {
 	notifyServiceDone    chan serviceID
 	resumeTimer          <-chan time.Time
 	liveness             chan struct{}
+	serveError           error
 
 	// despite the recommendation in the context package to avoid
 	// holding this in a struct, I think due to the function of suture
@@ -299,7 +300,7 @@ func (s *Supervisor) ServeBackground(ctx context.Context) {
 Serve starts the supervisor. You should call this on the top-level supervisor,
 but nothing else.
 */
-func (s *Supervisor) Serve(ctx context.Context) error {
+func (s *Supervisor) Serve(ctx context.Context) (err error) {
 	// context documentation suggests that it is legal for functions to
 	// take nil contexts, it's user's responsibility to never pass them in.
 	if ctx == nil {
@@ -334,6 +335,11 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 		s.m.Lock()
 		s.state = terminated
 		s.m.Unlock()
+		// Doesn't need to happen under lock, as it's only ever modified here
+		// and read after s.liveness is closed.
+		s.serveError = err
+		// Indicate that we're done shutting down
+		defer close(s.liveness)
 	}()
 
 	// for all the services I currently know about, start them
@@ -420,6 +426,21 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 			s.restartQueue = make([]serviceID, 0, 1)
 		}
 	}
+}
+
+// Done returns a channel on which the error returned from .Serve will be sent.
+// This method can be used to wait for the supervisor to stop after cancelling
+// the context given to .ServeBackground.
+func (s *Supervisor) Done() <-chan error {
+	done := make(chan error)
+	go func() {
+		<-s.liveness
+		select {
+		case done <- s.serveError:
+		default:
+		}
+	}()
+	return done
 }
 
 // UnstoppedServiceReport will return a report of what services failed to
@@ -624,9 +645,6 @@ SHUTTING_DOWN_SERVICES:
 
 	// If nothing else has cancelled our context, we should now.
 	s.ctxCancel()
-
-	// Indicate that we're done shutting down
-	defer close(s.liveness)
 
 	if len(s.servicesShuttingDown) == 0 {
 		return nil
