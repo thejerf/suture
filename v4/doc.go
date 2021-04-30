@@ -2,9 +2,9 @@
 
 Package suture provides Erlang-like supervisor trees.
 
-This implements Erlang-esque supervisor trees, as adapted for Go. This is
-intended to be an industrial-strength implementation, but it has not yet
-been deployed in a hostile environment. (It's headed there, though.)
+This implements Erlang-esque supervisor trees, as adapted for Go. This
+is an industrial-strength, tested library deployed into hostile
+environments, not just a proof of concept or a toy.
 
 Supervisor Tree -> SuTree -> suture -> holds your code together when it's
 trying to fall apart.

@@ -3,7 +3,7 @@ Suture
 
 [![Build Status](https://travis-ci.org/thejerf/suture.png?branch=master)](https://travis-ci.org/thejerf/suture)
 
-    import "gopkg.in/thejerf/suture.v4"
+    import "github.com/thejerf/suture"
 
 Suture provides Erlang-ish supervisor trees for Go. "Supervisor trees" ->
 "sutree" -> "suture" -> holds your code together when it's trying to die.
@@ -18,9 +18,12 @@ production environment.
 is available.
 
 This module is fairly fully covered
-with [godoc](http://godoc.org/github.com/thejerf/suture),
+with [godoc](https://pkg.go.dev/github.com/thejerf/suture/v4)
 including an example, usage, and everything else you might expect from a
 README.md on GitHub. (DRY.)
+
+v3 and before (which existed before go module support) documentation
+is [also available](https://pkg.go.dev/github.com/thejerf/suture).
 
 Special Thanks
 --------------
