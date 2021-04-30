@@ -290,9 +290,14 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 
 // ServeBackground starts running a supervisor in its own goroutine. When
 // this method returns, the supervisor is guaranteed to be in a running state.
-func (s *Supervisor) ServeBackground(ctx context.Context) {
-	go s.Serve(ctx)
+// The returned one-buffered channel receives the error returned by .Serve.
+func (s *Supervisor) ServeBackground(ctx context.Context) <-chan error {
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- s.Serve(ctx)
+	}()
 	s.sync()
+	return errChan
 }
 
 /*
