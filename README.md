@@ -3,10 +3,12 @@ Suture
 
 [![Build Status](https://travis-ci.org/thejerf/suture.png?branch=master)](https://travis-ci.org/thejerf/suture)
 
-    import "github.com/thejerf/suture"
+    import "github.com/thejerf/suture/v4"
 
 Suture provides Erlang-ish supervisor trees for Go. "Supervisor trees" ->
 "sutree" -> "suture" -> holds your code together when it's trying to die.
+
+If you are reading this on pkg.go.dev, you should [visit the v4 docs](https://pkg.go.dev/github.com/thejerf/suture/v4).
 
 It is intended to deal gracefully with the real failure cases that can
 occur with supervision trees (such as burning all your CPU time endlessly
