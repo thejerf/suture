@@ -72,6 +72,12 @@ Changelog
 
 suture uses semantic versioning and go modules.
 
+* 4.0.1:
+  * Add a channel returned from ServeBackground that can be used to
+    examine any error coming out of the supervisor once it is stopped.
+  * Tweak up the docs to try to make it more clear suture's special
+    error returns are checked via errors.Is when possible, addressing
+    issue #51.
 * 4.0:
   * Switched the entire API to be context based.
   * Switched how logging works to take a single closure that will be
