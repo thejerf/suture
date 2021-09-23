@@ -22,7 +22,7 @@ const (
 
 // Test that supervisors work perfectly when everything is hunky dory.
 func TestTheHappyCase(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A")
 	if s.String() != "A" {
@@ -49,7 +49,7 @@ func TestTheHappyCase(t *testing.T) {
 
 // Test that adding to a running supervisor does indeed start the service.
 func TestAddingToRunningSupervisor(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A1")
 
@@ -70,7 +70,7 @@ func TestAddingToRunningSupervisor(t *testing.T) {
 
 // Test what happens when services fail.
 func TestFailures(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A2")
 	s.spec.FailureThreshold = 3.5
@@ -222,7 +222,7 @@ func TestFailures(t *testing.T) {
 }
 
 func TestRunningAlreadyRunning(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A3")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -237,7 +237,7 @@ func TestRunningAlreadyRunning(t *testing.T) {
 }
 
 func TestFullConstruction(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := New("Moo", Spec{
 		EventHook:        func(Event) {},
@@ -253,7 +253,7 @@ func TestFullConstruction(t *testing.T) {
 
 // This is mostly for coverage testing.
 func TestDefaultLogging(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A4")
 
@@ -297,7 +297,7 @@ func TestDefaultLogging(t *testing.T) {
 }
 
 func TestNestedSupervisors(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	super1 := NewSimple("Top5")
 	super2 := NewSimple("Nested5")
@@ -330,7 +330,7 @@ func TestNestedSupervisors(t *testing.T) {
 }
 
 func TestStoppingSupervisorStopsServices(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top6")
 	service := NewService("Service 6")
@@ -358,7 +358,7 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 
 // This tests that even if a service is hung, the supervisor will stop.
 func TestStoppingStillWorksWithHungServices(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top7")
 	service := NewService("Service WillHang7")
@@ -396,7 +396,7 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 // This tests that even if a service is hung, the supervisor can still
 // remove it.
 func TestRemovingHungService(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("TopHungService")
 	failNotify := make(chan struct{})
@@ -426,7 +426,7 @@ func TestRemovingHungService(t *testing.T) {
 }
 
 func TestRemoveService(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top")
 	service := NewService("ServiceToRemove8")
@@ -455,7 +455,7 @@ func TestRemoveService(t *testing.T) {
 }
 
 func TestServiceReport(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top")
 	s.spec.Timeout = time.Millisecond
@@ -484,7 +484,7 @@ func TestServiceReport(t *testing.T) {
 }
 
 func TestFailureToConstruct(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	var s *Supervisor
 
@@ -495,7 +495,7 @@ func TestFailureToConstruct(t *testing.T) {
 }
 
 func TestFailingSupervisors(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	// This is a bit of a complicated test, so let me explain what
 	// all this is doing:
@@ -580,7 +580,7 @@ func TestFailingSupervisors(t *testing.T) {
 }
 
 func TestNilSupervisorAdd(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	var s *Supervisor
 
@@ -594,6 +594,7 @@ func TestNilSupervisorAdd(t *testing.T) {
 }
 
 func TestPassNoContextToSupervisor(t *testing.T) {
+	t.Parallel()
 	s := NewSimple("main")
 	service := NewService("B")
 	s.Add(service)
@@ -605,6 +606,7 @@ func TestPassNoContextToSupervisor(t *testing.T) {
 }
 
 func TestNilSupervisorPanicsAsExpected(t *testing.T) {
+	t.Parallel()
 	s := (*Supervisor)(nil)
 	if !panicsWith(s.Serve, "with a nil *suture.Supervisor") {
 		t.Fatal("nil supervisor doesn't panic as expected")
@@ -616,7 +618,7 @@ func TestNilSupervisorPanicsAsExpected(t *testing.T) {
 // The purpose of this test is to verify that it does not cause data races,
 // so there are no obvious assertions.
 func TestIssue11(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("main")
 	s.ServeBackground(context.Background())
@@ -628,7 +630,7 @@ func TestIssue11(t *testing.T) {
 }
 
 func TestRemoveAndWait(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("main")
 	s.spec.Timeout = time.Second
@@ -705,6 +707,7 @@ func TestRemoveAndWait(t *testing.T) {
 }
 
 func TestSupervisorManagementIssue35(t *testing.T) {
+	t.Parallel()
 	s := NewSimple("issue 35")
 
 	for i := 1; i < 100; i++ {
@@ -719,6 +722,7 @@ func TestSupervisorManagementIssue35(t *testing.T) {
 }
 
 func TestCoverage(t *testing.T) {
+	t.Parallel()
 	New("testing coverage", Spec{
 		EventHook: func(Event) {},
 	})
@@ -726,7 +730,7 @@ func TestCoverage(t *testing.T) {
 }
 
 func TestStopAfterRemoveAndWait(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	var badStopError error
 
@@ -764,7 +768,7 @@ func TestStopAfterRemoveAndWait(t *testing.T) {
 // This tests that the entire supervisor tree is terminated when a service
 // returns returns ErrTerminateTree directly.
 func TestServiceAndTreeTermination(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 	s1 := NewSimple("TestTreeTermination1")
 	s2 := NewSimple("TestTreeTermination2")
 	s1.Add(s2)
@@ -815,6 +819,7 @@ func TestServiceAndTreeTermination(t *testing.T) {
 // Test that supervisors set to not propagate service failures upwards will
 // not kill the whole tree.
 func TestDoNotPropagate(t *testing.T) {
+	t.Parallel()
 	parent := NewSimple("TestDoNotPropagate")
 	child := New("TestDoNotPropgate Subtree", Spec{DontPropagateTermination: true})
 
@@ -877,6 +882,7 @@ func eventually(t *testing.T, s *Supervisor, state uint8, interval time.Duration
 }
 
 func TestShim(t *testing.T) {
+	t.Parallel()
 	s := NewSimple("TEST: TestShim")
 	ctx, cancel := context.WithCancel(context.Background())
 	s.ServeBackground(ctx)
@@ -906,6 +912,7 @@ func TestShim(t *testing.T) {
 }
 
 func TestEverMultistarted(t *testing.T) {
+	t.Parallel()
 	t.Skip("this test produces a fatal, non-recoverable runtime error and should only enabled for demoing purposes")
 	// t.Skip() can be removed to demo the behavior.
 	// FailableService is setup to trigger a fatal, non-recoverable runtime error if it were ever started twice during tests.
@@ -916,7 +923,7 @@ func TestEverMultistarted(t *testing.T) {
 }
 
 func TestAddAfterStopping(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("main")
 	ctx, cancel := context.WithCancel(context.Background())
