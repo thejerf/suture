@@ -815,36 +815,64 @@ func TestServiceAndTreeTermination(t *testing.T) {
 // Test that supervisors set to not propagate service failures upwards will
 // not kill the whole tree.
 func TestDoNotPropagate(t *testing.T) {
-	s1 := NewSimple("TestDoNotPropagate")
-	s2 := New("TestDoNotPropgate Subtree", Spec{DontPropagateTermination: true})
+	parent := NewSimple("TestDoNotPropagate")
+	child := New("TestDoNotPropgate Subtree", Spec{DontPropagateTermination: true})
 
-	s1.Add(s2)
+	parent.Add(child)
 
 	service1 := NewService("should keep running")
 	service2 := NewService("should end up terminating")
-	s1.Add(service1)
-	s2.Add(service2)
+	parent.Add(service1)
+	child.Add(service2)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go s1.Serve(ctx)
+	go parent.Serve(ctx)
 	defer cancel()
 
 	<-service1.started
 	<-service2.started
 
-	fmt.Println("Service about to take")
+	t.Log("Service about to take")
 	service2.take <- TerminateTree
-	fmt.Println("Service took")
-	time.Sleep(time.Millisecond)
+	t.Log("Service took")
 
-	if service2.running {
-		t.Fatal("service 2 should have terminated")
+	t.Run("service1 should be running", func(t *testing.T) {
+		eventuallyRunning(t, service1, true, time.Millisecond)
+	})
+	t.Run("service2 should not be running", func(t *testing.T) {
+		eventuallyRunning(t, service2, false, time.Millisecond)
+	})
+	t.Run("parent supervisor should be running normally", func(t *testing.T) {
+		eventually(t, parent, normal, time.Millisecond)
+	})
+	t.Run("child supervisor should be terminated", func(t *testing.T) {
+		eventually(t, child, terminated, time.Millisecond)
+	})
+}
+
+func eventuallyRunning(t *testing.T, s *FailableService, running bool, interval time.Duration) {
+	t.Helper()
+	for {
+		s.m.Lock()
+		r := s.running
+		s.m.Unlock()
+		if r == running {
+			return
+		}
+		time.Sleep(interval)
 	}
-	if s2.state != terminated {
-		t.Fatal("child supervisor should be terminated")
-	}
-	if s1.state != normal {
-		t.Fatal("parent supervisor should be running")
+}
+
+func eventually(t *testing.T, s *Supervisor, state uint8, interval time.Duration) {
+	t.Helper()
+	for {
+		s.m.Lock()
+		st := s.state
+		s.m.Unlock()
+		if st == state {
+			return
+		}
+		time.Sleep(interval)
 	}
 }
 
@@ -952,6 +980,12 @@ func (s *FailableService) Serve(ctx context.Context) error {
 		s.m.Unlock()
 	}()
 
+	releaseExistence := func() {
+		s.m.Lock()
+		s.existing--
+		s.m.Unlock()
+	}
+
 	s.started <- true
 
 	useStopChan := false
@@ -963,13 +997,13 @@ func (s *FailableService) Serve(ctx context.Context) error {
 			case Happy:
 				// Do nothing on purpose. Life is good!
 			case Fail:
-				s.existing--
+				releaseExistence()
 				if useStopChan {
 					s.stop <- true
 				}
 				return nil
 			case Panic:
-				s.existing--
+				releaseExistence()
 				panic("Panic!")
 			case Hang:
 				// or more specifically, "hang until I release you"
@@ -982,7 +1016,7 @@ func (s *FailableService) Serve(ctx context.Context) error {
 				return ErrDoNotRestart
 			}
 		case <-ctx.Done():
-			s.existing--
+			releaseExistence()
 			if useStopChan {
 				s.stop <- true
 			}
