@@ -20,8 +20,6 @@ const (
 	DoNotRestart
 )
 
-var everMultistarted = false
-
 // Test that supervisors work perfectly when everything is hunky dory.
 func TestTheHappyCase(t *testing.T) {
 	// t.Parallel()
@@ -879,18 +877,14 @@ func TestShim(t *testing.T) {
 	<-os.stopping
 }
 
-// http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
-// claims test function are run in the same order as the source file...
-// I'm not sure if this is part of the contract, though. Especially in the
-// face of "t.Parallel()"...
-//
-// This is also why all the tests must go in this file; this test needs to
-// run last, and the only way I know to even hopefully guarantee that is to
-// have them all in one file.
 func TestEverMultistarted(t *testing.T) {
-	if everMultistarted {
-		t.Fatal("Seem to have multistarted a service at some point, bummer.")
-	}
+	t.Skip("this test produces a fatal, non-recoverable runtime error and should only enabled for demoing purposes")
+	// t.Skip() can be removed to demo the behavior.
+	// FailableService is setup to trigger a fatal, non-recoverable runtime error if it were ever started twice during tests.
+	s := NewService("test")
+	go s.Serve(context.Background())
+	go s.Serve(context.Background())
+	<-s.started
 }
 
 func TestAddAfterStopping(t *testing.T) {
@@ -942,13 +936,13 @@ type FailableService struct {
 }
 
 func (s *FailableService) Serve(ctx context.Context) error {
+	s.m.Lock()
 	if s.existing != 0 {
-		everMultistarted = true
-		panic("Multi-started the same service! " + s.name)
+		// This will produce a fatal runtime error if FailableService is ever started twice.
+		// Trying to unlock an unlocked mutex will trigger a fatal error, regardless of any recover() functions.
+		(&sync.Mutex{}).Unlock()
 	}
 	s.existing++
-
-	s.m.Lock()
 	s.running = true
 	s.m.Unlock()
 
