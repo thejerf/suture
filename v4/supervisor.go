@@ -548,11 +548,21 @@ func (s *Supervisor) runService(ctx context.Context, service Service, id service
 			}()
 		}
 
-		err := service.Serve(childCtx)
-		cancel()
-		close(done)
+		var err error
 
-		s.serviceEnded(id, err)
+		defer func() {
+			cancel()
+			close(done)
+
+			r := recover()
+			if r == nil {
+				s.serviceEnded(id, err)
+			} else {
+				panic(r)
+			}
+		}()
+
+		err = service.Serve(childCtx)
 	}()
 }
 
