@@ -72,6 +72,14 @@ Changelog
 
 suture uses semantic versioning and go modules.
 
+* 4.0.2:
+  * Add the ability to specify a handler for non-string panics to format
+    them.
+  * Fixed an issue where trying to close a currently-panicked service was
+    having problems. (This may have leaked goroutines in other ways too.)
+  * Merged a PR that addresses race conditions in the test suite. (These
+    seem to have been isolated to the test suite and not have affected the
+    core code.)
 * 4.0.1:
   * Add a channel returned from ServeBackground that can be used to
     examine any error coming out of the supervisor once it is stopped.
