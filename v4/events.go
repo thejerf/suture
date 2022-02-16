@@ -19,6 +19,11 @@ type (
 	EventType int
 
 	EventHook func(Event)
+
+	// SprintFunc formats an arbitrary Go value into a string.
+	// It is used by the supervisor to format the value of a call
+	// to recover().
+	SprintFunc func(interface{}) string
 )
 
 const (

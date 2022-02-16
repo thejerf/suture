@@ -358,7 +358,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 		case m := <-s.control:
 			switch msg := m.(type) {
 			case serviceFailed:
-				s.handleFailedService(ctx, msg.id, msg.panicMsg, msg.stacktrace, true)
+				s.handleFailedService(ctx, msg.id, msg.panicVal, msg.stacktrace, true)
 			case serviceEnded:
 				_, monitored := s.services[msg.id]
 				if monitored {
@@ -507,7 +507,7 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 				CurrentFailures:  s.failures,
 				FailureThreshold: s.spec.FailureThreshold,
 				Restarting:       curState == normal,
-				PanicMsg:         err.(string),
+				PanicMsg:         s.spec.Sprint(err),
 				Stacktrace:       string(stacktrace),
 			})
 		} else {
@@ -543,7 +543,7 @@ func (s *Supervisor) runService(ctx context.Context, service Service, id service
 					buf := make([]byte, 65535)
 					written := runtime.Stack(buf, false)
 					buf = buf[:written]
-					s.fail(id, r.(string), buf)
+					s.fail(id, r, buf)
 				}
 			}()
 		}
@@ -848,6 +848,7 @@ var ErrSupervisorNotStarted = errors.New("supervisor not started yet")
 // supervisor. See the New function for full documentation.
 type Spec struct {
 	EventHook                EventHook
+	Sprint                   SprintFunc
 	FailureDecay             float64
 	FailureThreshold         float64
 	FailureBackoff           time.Duration
@@ -878,6 +879,12 @@ func (s *Spec) configureDefaults(supervisorName string) {
 	if s.EventHook == nil {
 		s.EventHook = func(e Event) {
 			log.Print(e)
+		}
+	}
+
+	if s.Sprint == nil {
+		s.Sprint = func(v interface{}) string {
+			return fmt.Sprintf("%v", v)
 		}
 	}
 }
