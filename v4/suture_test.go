@@ -20,11 +20,9 @@ const (
 	DoNotRestart
 )
 
-var everMultistarted = false
-
 // Test that supervisors work perfectly when everything is hunky dory.
 func TestTheHappyCase(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A")
 	if s.String() != "A" {
@@ -51,7 +49,7 @@ func TestTheHappyCase(t *testing.T) {
 
 // Test that adding to a running supervisor does indeed start the service.
 func TestAddingToRunningSupervisor(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A1")
 
@@ -72,7 +70,7 @@ func TestAddingToRunningSupervisor(t *testing.T) {
 
 // Test what happens when services fail.
 func TestFailures(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A2")
 	s.spec.FailureThreshold = 3.5
@@ -224,7 +222,7 @@ func TestFailures(t *testing.T) {
 }
 
 func TestRunningAlreadyRunning(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A3")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -239,7 +237,7 @@ func TestRunningAlreadyRunning(t *testing.T) {
 }
 
 func TestFullConstruction(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := New("Moo", Spec{
 		EventHook:        func(Event) {},
@@ -255,7 +253,7 @@ func TestFullConstruction(t *testing.T) {
 
 // This is mostly for coverage testing.
 func TestDefaultLogging(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("A4")
 
@@ -299,7 +297,7 @@ func TestDefaultLogging(t *testing.T) {
 }
 
 func TestNestedSupervisors(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	super1 := NewSimple("Top5")
 	super2 := NewSimple("Nested5")
@@ -332,7 +330,7 @@ func TestNestedSupervisors(t *testing.T) {
 }
 
 func TestStoppingSupervisorStopsServices(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top6")
 	service := NewService("Service 6")
@@ -360,7 +358,7 @@ func TestStoppingSupervisorStopsServices(t *testing.T) {
 
 // This tests that even if a service is hung, the supervisor will stop.
 func TestStoppingStillWorksWithHungServices(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top7")
 	service := NewService("Service WillHang7")
@@ -398,7 +396,7 @@ func TestStoppingStillWorksWithHungServices(t *testing.T) {
 // This tests that even if a service is hung, the supervisor can still
 // remove it.
 func TestRemovingHungService(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("TopHungService")
 	failNotify := make(chan struct{})
@@ -428,7 +426,7 @@ func TestRemovingHungService(t *testing.T) {
 }
 
 func TestRemoveService(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top")
 	service := NewService("ServiceToRemove8")
@@ -457,7 +455,7 @@ func TestRemoveService(t *testing.T) {
 }
 
 func TestServiceReport(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("Top")
 	s.spec.Timeout = time.Millisecond
@@ -486,7 +484,7 @@ func TestServiceReport(t *testing.T) {
 }
 
 func TestFailureToConstruct(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	var s *Supervisor
 
@@ -497,7 +495,7 @@ func TestFailureToConstruct(t *testing.T) {
 }
 
 func TestFailingSupervisors(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	// This is a bit of a complicated test, so let me explain what
 	// all this is doing:
@@ -582,7 +580,7 @@ func TestFailingSupervisors(t *testing.T) {
 }
 
 func TestNilSupervisorAdd(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	var s *Supervisor
 
@@ -596,6 +594,7 @@ func TestNilSupervisorAdd(t *testing.T) {
 }
 
 func TestPassNoContextToSupervisor(t *testing.T) {
+	t.Parallel()
 	s := NewSimple("main")
 	service := NewService("B")
 	s.Add(service)
@@ -607,6 +606,7 @@ func TestPassNoContextToSupervisor(t *testing.T) {
 }
 
 func TestNilSupervisorPanicsAsExpected(t *testing.T) {
+	t.Parallel()
 	s := (*Supervisor)(nil)
 	if !panicsWith(s.Serve, "with a nil *suture.Supervisor") {
 		t.Fatal("nil supervisor doesn't panic as expected")
@@ -618,7 +618,7 @@ func TestNilSupervisorPanicsAsExpected(t *testing.T) {
 // The purpose of this test is to verify that it does not cause data races,
 // so there are no obvious assertions.
 func TestIssue11(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("main")
 	s.ServeBackground(context.Background())
@@ -630,7 +630,7 @@ func TestIssue11(t *testing.T) {
 }
 
 func TestRemoveAndWait(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("main")
 	s.spec.Timeout = time.Second
@@ -707,6 +707,7 @@ func TestRemoveAndWait(t *testing.T) {
 }
 
 func TestSupervisorManagementIssue35(t *testing.T) {
+	t.Parallel()
 	s := NewSimple("issue 35")
 
 	for i := 1; i < 100; i++ {
@@ -721,6 +722,7 @@ func TestSupervisorManagementIssue35(t *testing.T) {
 }
 
 func TestCoverage(t *testing.T) {
+	t.Parallel()
 	New("testing coverage", Spec{
 		EventHook: func(Event) {},
 	})
@@ -728,7 +730,7 @@ func TestCoverage(t *testing.T) {
 }
 
 func TestStopAfterRemoveAndWait(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	var badStopError error
 
@@ -766,7 +768,7 @@ func TestStopAfterRemoveAndWait(t *testing.T) {
 // This tests that the entire supervisor tree is terminated when a service
 // returns returns ErrTerminateTree directly.
 func TestServiceAndTreeTermination(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 	s1 := NewSimple("TestTreeTermination1")
 	s2 := NewSimple("TestTreeTermination2")
 	s1.Add(s2)
@@ -817,40 +819,70 @@ func TestServiceAndTreeTermination(t *testing.T) {
 // Test that supervisors set to not propagate service failures upwards will
 // not kill the whole tree.
 func TestDoNotPropagate(t *testing.T) {
-	s1 := NewSimple("TestDoNotPropagate")
-	s2 := New("TestDoNotPropgate Subtree", Spec{DontPropagateTermination: true})
+	t.Parallel()
+	parent := NewSimple("TestDoNotPropagate")
+	child := New("TestDoNotPropgate Subtree", Spec{DontPropagateTermination: true})
 
-	s1.Add(s2)
+	parent.Add(child)
 
 	service1 := NewService("should keep running")
 	service2 := NewService("should end up terminating")
-	s1.Add(service1)
-	s2.Add(service2)
+	parent.Add(service1)
+	child.Add(service2)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go s1.Serve(ctx)
+	go parent.Serve(ctx)
 	defer cancel()
 
 	<-service1.started
 	<-service2.started
 
-	fmt.Println("Service about to take")
+	t.Log("Service about to take")
 	service2.take <- TerminateTree
-	fmt.Println("Service took")
-	time.Sleep(time.Millisecond)
+	t.Log("Service took")
 
-	if service2.running {
-		t.Fatal("service 2 should have terminated")
+	t.Run("service1 should be running", func(t *testing.T) {
+		eventuallyRunning(t, service1, true, time.Millisecond)
+	})
+	t.Run("service2 should not be running", func(t *testing.T) {
+		eventuallyRunning(t, service2, false, time.Millisecond)
+	})
+	t.Run("parent supervisor should be running normally", func(t *testing.T) {
+		eventually(t, parent, normal, time.Millisecond)
+	})
+	t.Run("child supervisor should be terminated", func(t *testing.T) {
+		eventually(t, child, terminated, time.Millisecond)
+	})
+}
+
+func eventuallyRunning(t *testing.T, s *FailableService, running bool, interval time.Duration) {
+	t.Helper()
+	for {
+		s.m.Lock()
+		r := s.running
+		s.m.Unlock()
+		if r == running {
+			return
+		}
+		time.Sleep(interval)
 	}
-	if s2.state != terminated {
-		t.Fatal("child supervisor should be terminated")
-	}
-	if s1.state != normal {
-		t.Fatal("parent supervisor should be running")
+}
+
+func eventually(t *testing.T, s *Supervisor, state uint8, interval time.Duration) {
+	t.Helper()
+	for {
+		s.m.Lock()
+		st := s.state
+		s.m.Unlock()
+		if st == state {
+			return
+		}
+		time.Sleep(interval)
 	}
 }
 
 func TestShim(t *testing.T) {
+	t.Parallel()
 	s := NewSimple("TEST: TestShim")
 	ctx, cancel := context.WithCancel(context.Background())
 	s.ServeBackground(ctx)
@@ -879,22 +911,19 @@ func TestShim(t *testing.T) {
 	<-os.stopping
 }
 
-// http://golangtutorials.blogspot.com/2011/10/gotest-unit-testing-and-benchmarking-go.html
-// claims test function are run in the same order as the source file...
-// I'm not sure if this is part of the contract, though. Especially in the
-// face of "t.Parallel()"...
-//
-// This is also why all the tests must go in this file; this test needs to
-// run last, and the only way I know to even hopefully guarantee that is to
-// have them all in one file.
 func TestEverMultistarted(t *testing.T) {
-	if everMultistarted {
-		t.Fatal("Seem to have multistarted a service at some point, bummer.")
-	}
+	t.Parallel()
+	t.Skip("this test produces a fatal, non-recoverable runtime error and should only enabled for demoing purposes")
+	// t.Skip() can be removed to demo the behavior.
+	// FailableService is setup to trigger a fatal, non-recoverable runtime error if it were ever started twice during tests.
+	s := NewService("test")
+	go s.Serve(context.Background())
+	go s.Serve(context.Background())
+	<-s.started
 }
 
 func TestAddAfterStopping(t *testing.T) {
-	// t.Parallel()
+	t.Parallel()
 
 	s := NewSimple("main")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -942,13 +971,13 @@ type FailableService struct {
 }
 
 func (s *FailableService) Serve(ctx context.Context) error {
+	s.m.Lock()
 	if s.existing != 0 {
-		everMultistarted = true
-		panic("Multi-started the same service! " + s.name)
+		// This will produce a fatal runtime error if FailableService is ever started twice.
+		// Trying to unlock an unlocked mutex will trigger a fatal error, regardless of any recover() functions.
+		(&sync.Mutex{}).Unlock()
 	}
 	s.existing++
-
-	s.m.Lock()
 	s.running = true
 	s.m.Unlock()
 
@@ -957,6 +986,12 @@ func (s *FailableService) Serve(ctx context.Context) error {
 		s.running = false
 		s.m.Unlock()
 	}()
+
+	releaseExistence := func() {
+		s.m.Lock()
+		s.existing--
+		s.m.Unlock()
+	}
 
 	s.started <- true
 
@@ -969,13 +1004,13 @@ func (s *FailableService) Serve(ctx context.Context) error {
 			case Happy:
 				// Do nothing on purpose. Life is good!
 			case Fail:
-				s.existing--
+				releaseExistence()
 				if useStopChan {
 					s.stop <- true
 				}
 				return nil
 			case Panic:
-				s.existing--
+				releaseExistence()
 				panic("Panic!")
 			case Hang:
 				// or more specifically, "hang until I release you"
@@ -988,7 +1023,7 @@ func (s *FailableService) Serve(ctx context.Context) error {
 				return ErrDoNotRestart
 			}
 		case <-ctx.Done():
-			s.existing--
+			releaseExistence()
 			if useStopChan {
 				s.stop <- true
 			}
