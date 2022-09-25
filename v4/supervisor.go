@@ -145,63 +145,32 @@ DontPropagateTermination indicates whether this supervisor tree will
 propagate a ErrTerminateTree if a child process returns it. If false,
 this supervisor will itself return an error that will terminate its
 parent. If true, it will merely return ErrDoNotRestart. false by default.
-
 */
 func New(name string, spec Spec) *Supervisor {
 	spec.configureDefaults(name)
 
 	return &Supervisor{
-		name,
+		Name: name,
 
-		spec,
+		spec: spec,
 
-		// services
-		make(map[serviceID]serviceWithName),
-		// cancellations
-		make(map[serviceID]context.CancelFunc),
-		// servicesShuttingDown
-		make(map[serviceID]serviceWithName),
-		// lastFail, deliberately the zero time
-		time.Time{},
-		// failures
-		0,
-		// restartQueue
-		make([]serviceID, 0, 1),
-		// serviceCounter
-		0,
-		// control
-		make(chan supervisorMessage),
-		// notifyServiceDone
-		make(chan serviceID),
-		// resumeTimer
-		make(chan time.Time),
+		services:             make(map[serviceID]serviceWithName),
+		cancellations:        make(map[serviceID]context.CancelFunc),
+		servicesShuttingDown: make(map[serviceID]serviceWithName),
+		lastFail:             time.Time{}, // deliberately the zero time
+		restartQueue:         make([]serviceID, 0, 1),
+		control:              make(chan supervisorMessage),
+		notifyServiceDone:    make(chan serviceID),
+		resumeTimer:          make(chan time.Time),
 
-		// liveness
-		make(chan struct{}),
+		liveness: make(chan struct{}),
 
-		sync.Mutex{},
-		// ctx
-		nil,
-		// myCancel
-		nil,
+		// the tests can override these for testing threshold behavior
+		getNow:       time.Now,
+		getAfterChan: time.After,
 
-		// the tests can override these for testing threshold
-		// behavior
-		// getNow
-		time.Now,
-		// getAfterChan
-		time.After,
-
-		// m
-		sync.Mutex{},
-
-		// unstoppedServiceReport
-		nil,
-
-		// id
-		nextSupervisorID(),
-		// state
-		notRunning,
+		id:    nextSupervisorID(),
+		state: notRunning,
 	}
 }
 
