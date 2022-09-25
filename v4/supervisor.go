@@ -50,11 +50,10 @@ program will be to call one of the Serve methods.
 Calling ServeBackground will CORRECTLY start the supervisor running in a
 new goroutine. It is risky to directly run
 
-  go supervisor.Serve()
+	go supervisor.Serve()
 
 because that will briefly create a race condition as it starts up, if you
 try to .Add() services immediately afterward.
-
 */
 type Supervisor struct {
 	Name string
@@ -97,7 +96,6 @@ type Supervisor struct {
 }
 
 /*
-
 New is the full constructor function for a supervisor.
 
 The name is a friendly human name for the supervisor, used in logging. Suture
@@ -105,21 +103,21 @@ does not care if this is unique, but it is good for your sanity if it is.
 
 If not set, the following values are used:
 
- * EventHook:         A function is created that uses log.Print.
- * FailureDecay:      30 seconds
- * FailureThreshold:  5 failures
- * FailureBackoff:    15 seconds
- * Timeout:           10 seconds
- * BackoffJitter:     DefaultJitter
+  - EventHook:         A function is created that uses log.Print.
+  - FailureDecay:      30 seconds
+  - FailureThreshold:  5 failures
+  - FailureBackoff:    15 seconds
+  - Timeout:           10 seconds
+  - BackoffJitter:     DefaultJitter
 
 The EventHook function will be called when errors occur. Suture will log the
 following:
 
- * When a service has failed, with a descriptive message about the
-   current backoff status, and whether it was immediately restarted
- * When the supervisor has gone into its backoff mode, and when it
-   exits it
- * When a service fails to stop
+  - When a service has failed, with a descriptive message about the
+    current backoff status, and whether it was immediately restarted
+  - When the supervisor has gone into its backoff mode, and when it
+    exits it
+  - When a service fails to stop
 
 The failureRate, failureThreshold, and failureBackoff controls how failures
 are handled, in order to avoid the supervisor failure case where the
@@ -223,7 +221,6 @@ supervisor being added will copy the EventHook function from the Supervisor it
 is being added to. This allows factoring out providing a Supervisor
 from its logging. This unconditionally overwrites the child Supervisor's
 logging functions.
-
 */
 func (s *Supervisor) Add(service Service) ServiceToken {
 	if s == nil {
@@ -725,10 +722,8 @@ func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error
 }
 
 /*
-
 Services returns a []Service containing a snapshot of the services this
 Supervisor is managing.
-
 */
 func (s *Supervisor) Services() []Service {
 	ls := listServices{make(chan []Service)}
