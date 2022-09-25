@@ -284,7 +284,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 		panic("Can't serve with a nil *suture.Supervisor")
 	}
 	// Take a separate cancellation function so this tree can be
-	// indepedently cancelled.
+	// independently cancelled.
 	ctx, myCancel := context.WithCancel(ctx)
 	s.ctxMutex.Lock()
 	s.ctx = ctx
