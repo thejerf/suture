@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -770,14 +771,10 @@ func (s *Supervisor) Services() []Service {
 	return nil
 }
 
-var currentSupervisorIDL sync.Mutex
 var currentSupervisorID uint32
 
 func nextSupervisorID() supervisorID {
-	currentSupervisorIDL.Lock()
-	defer currentSupervisorIDL.Unlock()
-	currentSupervisorID++
-	return supervisorID(currentSupervisorID)
+	return supervisorID(atomic.AddUint32(&currentSupervisorID, 1))
 }
 
 // ServiceToken is an opaque identifier that can be used to terminate a service that
