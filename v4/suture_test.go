@@ -444,11 +444,12 @@ func TestRemoveService(t *testing.T) {
 	}
 	<-service.stop
 
-	err = s.Remove(ServiceToken{id.id + (1 << 32)})
+	wrongSup := ServiceToken{supervisor: id.supervisor + 1, service: id.service}
+	err = s.Remove(wrongSup)
 	if err != ErrWrongSupervisor {
 		t.Fatal("Did not detect that the ServiceToken was wrong")
 	}
-	err = s.RemoveAndWait(ServiceToken{id.id + (1 << 32)}, time.Second)
+	err = s.RemoveAndWait(wrongSup, time.Second)
 	if err != ErrWrongSupervisor {
 		t.Fatal("Did not detect that the ServiceToken was wrong")
 	}

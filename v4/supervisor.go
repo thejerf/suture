@@ -278,7 +278,7 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 		s.restartQueue = append(s.restartQueue, id)
 
 		s.m.Unlock()
-		return ServiceToken{uint64(s.id)<<32 | uint64(id)}
+		return ServiceToken{supervisor: s.id, service: id}
 	}
 	s.m.Unlock()
 
@@ -286,7 +286,7 @@ func (s *Supervisor) Add(service Service) ServiceToken {
 	if s.sendControl(addService{service, serviceName(service), response}) != nil {
 		return ServiceToken{}
 	}
-	return ServiceToken{uint64(s.id)<<32 | uint64(<-response)}
+	return ServiceToken{supervisor: s.id, service: <-response}
 }
 
 // ServeBackground starts running a supervisor in its own goroutine. When
@@ -653,7 +653,7 @@ SHUTTING_DOWN_SERVICES:
 				SupervisorPath: []*Supervisor{s},
 				Service:        serviceWithName.Service,
 				Name:           serviceWithName.name,
-				ServiceToken:   ServiceToken{uint64(s.id)<<32 | uint64(serviceID)},
+				ServiceToken:   ServiceToken{supervisor: s.id, service: serviceID},
 			})
 		}
 		s.m.Lock()
@@ -695,11 +695,10 @@ The ServiceID token comes from the Add() call. This returns without waiting
 for the service to stop.
 */
 func (s *Supervisor) Remove(id ServiceToken) error {
-	sID := supervisorID(id.id >> 32)
-	if sID != s.id {
+	if id.supervisor != s.id {
 		return ErrWrongSupervisor
 	}
-	err := s.sendControl(removeService{serviceID(id.id & 0xffffffff), nil})
+	err := s.sendControl(removeService{id.service, nil})
 	if err == ErrSupervisorNotRunning {
 		// No meaningful error handling if the supervisor is stopped.
 		return nil
@@ -718,8 +717,7 @@ passes, ErrTimeout is returned. (If this isn't even the right supervisor
 ErrWrongSupervisor is returned.)
 */
 func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error {
-	sID := supervisorID(id.id >> 32)
-	if sID != s.id {
+	if id.supervisor != s.id {
 		return ErrWrongSupervisor
 	}
 
@@ -733,7 +731,7 @@ func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error
 
 	notificationC := make(chan struct{})
 
-	sentControlErr := s.sendControl(removeService{serviceID(id.id & 0xffffffff), notificationC})
+	sentControlErr := s.sendControl(removeService{id.service, notificationC})
 
 	if sentControlErr != nil {
 		return sentControlErr
@@ -780,7 +778,8 @@ func nextSupervisorID() supervisorID {
 // ServiceToken is an opaque identifier that can be used to terminate a service that
 // has been Add()ed to a Supervisor.
 type ServiceToken struct {
-	id uint64
+	supervisor supervisorID
+	service    serviceID
 }
 
 // An UnstoppedService is the component member of an
