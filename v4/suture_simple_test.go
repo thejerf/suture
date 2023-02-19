@@ -11,11 +11,6 @@ type Incrementor struct {
 	stop    chan bool
 }
 
-func (i *Incrementor) Stop() {
-	fmt.Println("Stopping the service")
-	i.stop <- true
-}
-
 func (i *Incrementor) Serve(ctx context.Context) error {
 	for {
 		select {
