@@ -5,12 +5,12 @@ import "fmt"
 type Incrementor struct {
 	current int
 	next    chan int
-	stop    chan bool
+	stop    chan struct{}
 }
 
 func (i *Incrementor) Stop() {
 	fmt.Println("Stopping the service")
-	i.stop <- true
+	close(i.stop)
 }
 
 func (i *Incrementor) Serve() {
@@ -19,10 +19,6 @@ func (i *Incrementor) Serve() {
 		case i.next <- i.current:
 			i.current++
 		case <-i.stop:
-			// We sync here just to guarantee the output of "Stopping the service",
-			// so this passes the test reliably.
-			// Most services would simply "return" here.
-			i.stop <- true
 			return
 		}
 	}
@@ -30,7 +26,7 @@ func (i *Incrementor) Serve() {
 
 func ExampleNew_simple() {
 	supervisor := NewSimple("Supervisor")
-	service := &Incrementor{0, make(chan int), make(chan bool)}
+	service := &Incrementor{0, make(chan int), make(chan struct{})}
 	supervisor.Add(service)
 
 	supervisor.ServeBackground()
