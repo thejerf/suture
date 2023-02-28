@@ -13,7 +13,7 @@ func isErr(err error, target error) bool {
 // error will count as an ErrDoNotRestart.
 var ErrDoNotRestart = errors.New("service should not be restarted")
 
-// ErrTerminateSupervisorTree can can be returned by a service to terminate the
+// ErrTerminateSupervisorTree can be returned by a service to terminate the
 // entire supervision tree above it as well. Any error that will compare
 // with errors.Is to be ErrTerminateSupervisorTree will count as an
 // ErrTerminateSupervisorTree.
