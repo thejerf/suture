@@ -346,7 +346,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 	for _, id := range s.restartQueue {
 		namedService, present := s.services[id]
 		if present {
-			s.runService(ctx, namedService.Service, id)
+			s.runService(ctx, namedService.Service, id, namedService.name)
 		}
 	}
 	s.restartQueue = make([]serviceID, 0, 1)
@@ -384,7 +384,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 				s.serviceCounter++
 
 				s.services[id] = serviceWithName{msg.service, msg.name}
-				s.runService(ctx, msg.service, id)
+				s.runService(ctx, msg.service, id, msg.name)
 
 				msg.response <- id
 			case removeService:
@@ -420,7 +420,7 @@ func (s *Supervisor) Serve(ctx context.Context) error {
 			for _, id := range s.restartQueue {
 				namedService, present := s.services[id]
 				if present {
-					s.runService(ctx, namedService.Service, id)
+					s.runService(ctx, namedService.Service, id, namedService.name)
 				}
 			}
 			s.restartQueue = make([]serviceID, 0, 1)
@@ -495,7 +495,7 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 		curState := s.state
 		s.m.Unlock()
 		if curState == normal {
-			s.runService(ctx, failedService.Service, id)
+			s.runService(ctx, failedService.Service, id, failedService.name)
 		} else {
 			s.restartQueue = append(s.restartQueue, id)
 		}
@@ -529,7 +529,7 @@ func (s *Supervisor) handleFailedService(ctx context.Context, id serviceID, err 
 	}
 }
 
-func (s *Supervisor) runService(ctx context.Context, service Service, id serviceID) {
+func (s *Supervisor) runService(ctx context.Context, service Service, id serviceID, name string) {
 	childCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	blockingCancellation := func() {
@@ -562,7 +562,11 @@ func (s *Supervisor) runService(ctx context.Context, service Service, id service
 				panic(r)
 			}
 		}()
-
+		s.spec.EventHook(EventStart{
+			Supervisor:     s,
+			SupervisorName: s.Name,
+			ServiceName:    name,
+		})
 		err = service.Serve(childCtx)
 	}()
 }
