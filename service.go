@@ -3,7 +3,7 @@ package suture
 /*
 Service is the interface that describes a service to a Supervisor.
 
-Serve Method
+# Serve Method
 
 The Serve method is called by a Supervisor to start the service.
 The service should execute within the goroutine that this is
@@ -14,7 +14,7 @@ A Serve method SHOULD do as much cleanup of the state as possible,
 to prevent any corruption in the previous state from crashing the
 service again.
 
-Stop Method
+# Stop Method
 
 This method is used by the supervisor to stop the service. Calling this
 directly on a Service given to a Supervisor will simply result in the
@@ -48,7 +48,7 @@ properly stopped in the future. Until the service is fully stopped,
 both the service and the spawned goroutine trying to stop it will be
 "leaked".
 
-Stringer Interface
+# Stringer Interface
 
 When a Service is added to a Supervisor, the Supervisor will create a
 string representation of that service used for logging.
@@ -58,12 +58,11 @@ If you implement the fmt.Stringer interface, that will be used.
 If you do not implement the fmt.Stringer interface, a default
 fmt.Sprintf("%#v") will be used.
 
-Optional Interface
+# Optional Interface
 
 Services may optionally implement IsCompletable, which allows a service
 to indicate to a supervisor that it does not need to be restarted if
 it has terminated.
-
 */
 type Service interface {
 	Serve()
@@ -71,7 +70,6 @@ type Service interface {
 }
 
 /*
-
 IsCompletable is an optionally-implementable interface that allows a service
 to report to a supervisor that it does not need to be restarted because it
 has terminated normally. When a Service is going to be restarted, the
@@ -80,7 +78,6 @@ service is removed from the supervisor instead of restarted.
 
 This is only executed when the service is not running because it has
 terminated, and has not yet been restarted.
-
 */
 type IsCompletable interface {
 	Complete() bool

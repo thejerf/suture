@@ -1,5 +1,4 @@
 /*
-
 Package suture provides Erlang-like supervisor trees.
 
 This implements Erlang-esque supervisor trees, as adapted for Go. This
@@ -11,13 +10,13 @@ trying to fall apart.
 
 Why use Suture?
 
- * You want to write bullet-resistant services that will remain available
-   despite unforeseen failure.
- * You need the code to be smart enough not to consume 100% of the CPU
-   restarting things.
- * You want to easily compose multiple such services in one program.
- * You want the Erlang programmers to stop lording their supervision
-   trees over you.
+  - You want to write bullet-resistant services that will remain available
+    despite unforeseen failure.
+  - You need the code to be smart enough not to consume 100% of the CPU
+    restarting things.
+  - You want to easily compose multiple such services in one program.
+  - You want the Erlang programmers to stop lording their supervision
+    trees over you.
 
 Suture has 100% test coverage, and is golint clean. This doesn't prove it
 free of bugs, but it shows I care.
@@ -25,7 +24,7 @@ free of bugs, but it shows I care.
 A blog post describing the design decisions is available at
 http://www.jerf.org/iri/post/2930 .
 
-Using Suture
+# Using Suture
 
 To idiomatically use Suture, create a Supervisor which is your top level
 "application" supervisor. This will often occur in your program's "main"
@@ -49,6 +48,5 @@ you've defined.
 
 See the Example for an example, using a simple service that serves out
 incrementing integers.
-
 */
 package suture

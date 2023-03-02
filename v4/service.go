@@ -7,7 +7,7 @@ import (
 /*
 Service is the interface that describes a service to a Supervisor.
 
-Serve Method
+# Serve Method
 
 The Serve method is called by a Supervisor to start the service.
 The service should execute within the goroutine that this is
@@ -55,7 +55,7 @@ properly stopped in the future. Until the service is fully stopped,
 both the service and the spawned goroutine trying to stop it will be
 "leaked".
 
-Stringer Interface
+# Stringer Interface
 
 When a Service is added to a Supervisor, the Supervisor will create a
 string representation of that service used for logging.
@@ -64,7 +64,6 @@ If you implement the fmt.Stringer interface, that will be used.
 
 If you do not implement the fmt.Stringer interface, a default
 fmt.Sprintf("%#v") will be used.
-
 */
 type Service interface {
 	Serve(ctx context.Context) error
