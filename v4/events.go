@@ -2,6 +2,7 @@ package suture
 
 import (
 	"fmt"
+	"reflect"
 )
 
 // Event defines the interface implemented by all events Suture will
@@ -46,10 +47,16 @@ func (e EventStopTimeout) Type() EventType {
 }
 
 func (e EventStopTimeout) String() string {
+	var serviceName string
+	if stringer, ok := e.Service.(fmt.Stringer); ok {
+		serviceName = stringer.String()
+	} else {
+		serviceName = reflect.TypeOf(e.Service).String()
+	}
 	return fmt.Sprintf(
-		"%s: Service %s failed to terminate in a timely manner",
+		"%s: Service '%s' failed to terminate in a timely manner",
 		e.Supervisor,
-		e.Service,
+		serviceName,
 	)
 }
 
