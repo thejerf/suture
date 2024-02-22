@@ -1,7 +1,7 @@
 Suture
 ======
 
-[![Build Status](https://travis-ci.org/thejerf/suture.png?branch=master)](https://travis-ci.org/thejerf/suture)
+[![Go Reference](https://pkg.go.dev/badge/github.com/thejerf/suture.svg)](https://pkg.go.dev/github.com/thejerf/suture)
 
     import "github.com/thejerf/suture/v4"
 
