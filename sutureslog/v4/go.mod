@@ -1,4 +1,4 @@
-module github.com/thejerf/suture/sutureslog
+module github.com/thejerf/suture/sutureslog/v4
 
 go 1.22.0
 
