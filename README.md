@@ -27,6 +27,13 @@ README.md on GitHub. (DRY.)
 v3 and before (which existed before go module support) documentation
 is [also available](https://pkg.go.dev/github.com/thejerf/suture).
 
+A default slog-based logger is provided in
+[github.com/thejerf/suture/v4/sutureslog](https://pkg.go.dev/github.com/thejerf/suture/v4/sutureslog). Note
+this is a *SEPARATE GO MODULE*, in order to avoid "infecting" the main
+suture/v4 with a new requirement to be on at least Go 1.21. Using this
+will require an additional `go get
+github.com/thejerf/suture/v4/sutureslog`.
+
 Special Thanks
 --------------
 
@@ -72,6 +79,9 @@ Changelog
 
 suture uses semantic versioning and go modules.
 
+* 4.0.3:
+  * Add a provided slog-based logger,
+    [github.com/thejerf/suture/v4/sutureslog](https://pkg.go.dev/github.com/thejerf/suture/v4/sutureslog).
 * 4.0.2:
   * Add the ability to specify a handler for non-string panics to format
     them.
