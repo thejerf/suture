@@ -5,7 +5,7 @@ Note this is a separate module from suture to avoid forcing suture
 itself to require a Go version that has log/slog. That dependency is
 isolated to just this module. That means you must run a separate
 
-	go get github.com/thejerf/suture/v4/sutureslog
+	go get github.com/thejerf/suture/sutureslog
 
 Passing this as a logger for a Supervisor looks like:
 
