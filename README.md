@@ -82,6 +82,21 @@ Changelog
 
 suture uses semantic versioning and go modules.
 
+* 4.0.6:
+  * Close [Issue 77](https://github.com/thejerf/suture/issues/77).
+  
+    Issue 77 is that if a service returns one of the distinguished
+    context errors, it was interpreted as being the result of the
+    service's context returning that error, and so the service was
+    terminated. However, it is easy for such errors from other
+    contexts to end up being the return value for the service while
+    the service's context is still alive and well.
+    
+    Rather than taking that error, the context should be examined
+    directly for whether or not it is currently canceled.
+    
+    This is a slight behavior change, but my best guess is that this
+    is a bugfix only, so I'm not rolling a minor release.
 * 4.0.4 and 4.0.5:
   * Apparently there is no way to have this be its own module and live
     in this directory. Moved

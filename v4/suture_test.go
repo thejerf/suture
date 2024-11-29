@@ -18,6 +18,7 @@ const (
 	UseStopChan
 	TerminateTree
 	DoNotRestart
+	FakeContextCancel
 )
 
 // Test that supervisors work perfectly when everything is hunky dory.
@@ -868,6 +869,32 @@ func TestAddAfterStopping(t *testing.T) {
 	}
 }
 
+// Issue 77 is that returning a context.DeadlineExceeded or
+// context.Canceled from the job, when the context itself is not
+// canceled or deadlined, gets interpreted as an order to shut the
+// service down. This tests that the service is in fact restarted.
+func TestIssue77(t *testing.T) {
+	t.Parallel()
+
+	s := NewSimple("TestIssue77")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	service := NewService("cance1lling")
+	s.Add(service)
+
+	go func() {
+		_ = s.Serve(ctx)
+	}()
+
+	// Service starts
+	<-service.started
+	// service returns spurious context.Canceled
+	service.take <- FakeContextCancel
+	// Service restarts
+	<-service.started
+}
+
 // A test service that can be induced to fail, panic, or hang on demand.
 func NewService(name string) *FailableService {
 	return &FailableService{name, make(chan bool), make(chan int),
@@ -937,6 +964,9 @@ func (s *FailableService) Serve(ctx context.Context) error {
 				return ErrTerminateSupervisorTree
 			case DoNotRestart:
 				return ErrDoNotRestart
+			case FakeContextCancel:
+				releaseExistence()
+				return context.Canceled
 			}
 		case <-ctx.Done():
 			releaseExistence()
