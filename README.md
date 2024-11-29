@@ -60,8 +60,12 @@ with the ["jerf" keybase account](https://keybase.io/jerf). If you are viewing
 this repository through GitHub, you should see the commits as showing as
 "verified" in the commit view.
 
-(Bear in mind that due to the nature of how git commit signing works, there
-may be runs of unverified commits; what matters is that the top one is signed.)
+November 2024: My GPG key, as expected, expired. I have added a new
+subkey with a later expiration date, but GitHub now views all the
+previous commits as unsigned. Again, the nature of commit signing is
+that each signature is technically a signature on the entire repo, so
+the commit that adds this update is also a handover signature signing
+the repo.
 
 Aspiration
 ----------

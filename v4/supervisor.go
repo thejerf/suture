@@ -120,11 +120,6 @@ following:
     exits it
   - When a service fails to stop
 
-A slog-based EventHook is provided in the submodule sutureslog. Note
-that it is a separate Go module, in order to avoid imposing a Go 1.21
-requirement on this module, so a separate go get step will be
-necessary to use it.
-
 The failureRate, failureThreshold, and failureBackoff controls how failures
 are handled, in order to avoid the supervisor failure case where the
 program does nothing but restarting failed services. If you do not
