@@ -1,7 +1,7 @@
 Suture
 ======
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/thejerf/suture.svg)](https://pkg.go.dev/github.com/thejerf/suture)
+[![Go Reference](https://pkg.go.dev/badge/github.com/thejerf/suture.svg)](https://pkg.go.dev/github.com/thejerf/suture/v4)
 
     import "github.com/thejerf/suture/v4"
 
