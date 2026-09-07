@@ -696,6 +696,18 @@ func (s *Supervisor) sendControl(sm supervisorMessage) error {
 	}
 }
 
+// removeBeforeStart deletes a service that was registered by Add before the
+// supervisor started, reporting whether it handled the removal.
+func (s *Supervisor) removeBeforeStart(id serviceID) bool {
+	s.m.Lock()
+	defer s.m.Unlock()
+	if s.state != notRunning {
+		return false
+	}
+	delete(s.services, id)
+	return true
+}
+
 /*
 Remove will remove the given service from the Supervisor, and attempt to Stop() it.
 The ServiceID token comes from the Add() call. This returns without waiting
@@ -704,6 +716,11 @@ for the service to stop.
 func (s *Supervisor) Remove(id ServiceToken) error {
 	if id.supervisor != s.id {
 		return ErrWrongSupervisor
+	}
+	// Mirrors the not-yet-running branch of Add, which registers services
+	// directly instead of going through the control channel.
+	if s.removeBeforeStart(id.service) {
+		return nil
 	}
 	err := s.sendControl(removeService{id.service, nil})
 	if err == ErrSupervisorNotRunning {
@@ -726,6 +743,10 @@ ErrWrongSupervisor is returned.)
 func (s *Supervisor) RemoveAndWait(id ServiceToken, timeout time.Duration) error {
 	if id.supervisor != s.id {
 		return ErrWrongSupervisor
+	}
+
+	if s.removeBeforeStart(id.service) {
+		return nil
 	}
 
 	var timeoutC <-chan time.Time
