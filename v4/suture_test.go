@@ -1069,3 +1069,40 @@ func panicsWith(doesItPanic func(context.Context) error, s string) (panics bool)
 
 	return
 }
+
+// Add documents that the token it returns may be passed to Remove, and it
+// registers services directly when the supervisor has not started yet. Removal
+// has to honour that same pre-start state.
+func TestRemoveBeforeServe(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		remove func(*Supervisor, ServiceToken) error
+	}{
+		{"Remove", func(s *Supervisor, id ServiceToken) error { return s.Remove(id) }},
+		{"RemoveAndWait", func(s *Supervisor, id ServiceToken) error {
+			return s.RemoveAndWait(id, time.Second)
+		}},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := NewSimple("Top")
+			id := s.Add(NewService("ServiceRemovedBeforeServe"))
+
+			if err := tt.remove(s, id); err != nil {
+				t.Fatalf("%s before Serve: %v", tt.name, err)
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			s.ServeBackground(ctx)
+
+			if got := len(s.Services()); got != 0 {
+				t.Errorf("supervisor still manages %d service(s) after %s; want 0", got, tt.name)
+			}
+		})
+	}
+}
